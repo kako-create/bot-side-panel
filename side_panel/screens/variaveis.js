@@ -7,6 +7,7 @@ const TEMPLATE_ID = 'tpl-screen-variaveis';
 
 const createInitialState = () => ({
   botId: null,
+  mode: null,
   hasAuth: false,
   syncing: false,
   lastError: null,
@@ -252,6 +253,7 @@ const loadContext = async () => {
 
   const prevBotId = state.botId;
   state.botId = response.data.context.botId ?? null;
+  state.mode = response.data.context.mode ?? null;
   state.hasAuth = Boolean(response.data.hasAuth);
   updateHeader();
   updateSyncButton();
@@ -274,7 +276,7 @@ const startSync = async () => {
   updateSyncButton();
   updateStatus();
 
-  const response = await callBG(MessageType.SYNC_VARIABLES, { botId: state.botId });
+  const response = await callBG(MessageType.SYNC_VARIABLES, { botId: state.botId, mode: state.mode });
   state.syncing = false;
   if (!response.ok) {
     state.lastError = response.error?.message ?? 'Falha ao sincronizar.';

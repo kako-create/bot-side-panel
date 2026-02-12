@@ -202,11 +202,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     case MessageType.SYNC_VARIABLES: {
       initPromise.then(() => {
         const requestedBotId = message?.botId ?? contextState.botId;
+        const requestedMode = normalizeMode(message?.mode ?? contextState.mode);
         if (!requestedBotId || !authSessionState.authorization) {
           respond(respondErr(ErrorCode.NOT_READY, 'botId ou token ausente.'));
           return;
         }
-        syncBotVariables({ botId: requestedBotId, authorization: authSessionState.authorization })
+        syncBotVariables({
+          botId: requestedBotId,
+          authorization: authSessionState.authorization,
+          mode: requestedMode,
+        })
           .then((data) => respond(respondOk(data)))
           .catch((error) =>
             respond(

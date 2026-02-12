@@ -132,11 +132,11 @@ export const fetchSubflowItems = async (botId, groupId, authorization, signal) =
   return normalizeList(payload, ['items']);
 };
 
-export const fetchBotVariables = async (botId, authorization, signal) => {
+export const fetchBotVariables = async (botId, authorization, mode = 'bot', signal) => {
   if (!authorization || !authorization.toLowerCase().startsWith('bearer ')) {
     throw new Error('Token de autorização inválido ou ausente.');
   }
-  const response = await fetchWithRetry(apiEndpoints.botVariables(botId), {
+  const response = await fetchWithRetry(apiEndpoints.botVariables(botId, mode), {
     headers: { Authorization: authorization },
     signal,
   });
@@ -154,6 +154,7 @@ export const fetchBotVariables = async (botId, authorization, signal) => {
     });
   };
 
+  addGroup('local', payload?.local);
   addGroup('bot', payload?.bot);
   addGroup('global', payload?.global);
   addGroup('vtex', payload?.vtex);

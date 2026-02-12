@@ -14,13 +14,13 @@ const mergeMeta = async (botId, patch) => {
   await saveMeta({ ...current, botId, ...patch });
 };
 
-export const syncBotVariables = async ({ botId, authorization } = {}) => {
+export const syncBotVariables = async ({ botId, authorization, mode = 'bot' } = {}) => {
   if (!botId || !authorization) {
     throw new Error('Contexto incompleto para sincronizar variáveis.');
   }
 
   await clearVariablesData(botId);
-  const items = await fetchBotVariables(botId, authorization);
+  const items = await fetchBotVariables(botId, authorization, mode);
 
   const records = (items || []).map((item) => buildVariableRecord(item, { groupKey: item?.__group }));
   let bytes = 0;
@@ -37,4 +37,3 @@ export const syncBotVariables = async ({ botId, authorization } = {}) => {
 
   return { variablesCount: records.length };
 };
-

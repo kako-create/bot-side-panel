@@ -17,7 +17,8 @@ export const apiEndpoints = {
   rootItems: (botId) => buildApiUrl(`/bots/${botId}/items`),
   subflowItems: (botId, groupId) => buildApiUrl(`/bots/${botId}/items-subflow/${groupId}`),
   itemsSummary: (botId) => buildApiUrl(`/bots/${botId}/items-summary`),
-  botVariables: (botId) => buildApiUrl(`/bots/variable/${botId}`),
+  botVariables: (botId, mode = 'bot') =>
+    buildApiUrl(mode === 'ura' ? `/ivr/variables/${botId}` : `/bots/variable/${botId}`),
   botTags: (botId, mode = 'bot') =>
     buildApiUrl(mode === 'ura' ? `/ivr/${botId}/tag` : `/bots/tag/${botId}`),
 };

@@ -398,6 +398,7 @@ export const buildVariableRecord = (variable, { groupKey } = {}) => {
   const baseId = rawId ? String(rawId) : label ? String(label) : null;
   const resolvedGroupKey = groupKey ?? item.__group ?? item.type ?? '';
   const groupMap = {
+    local: 'Local',
     bot: 'Bot',
     global: 'Global',
     vtex: 'VTEX',
