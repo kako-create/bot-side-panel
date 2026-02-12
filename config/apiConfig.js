@@ -1,0 +1,23 @@
+export const API_BASE_URL = 'https://api.bots.digitalcontact.cloud/api/v3';
+export const APP_BASE_URL = 'https://new.boteria.com.br';
+
+export const buildApiUrl = (path) => {
+  const trimmedBase = API_BASE_URL.replace(/\/+$/, '');
+  const trimmedPath = String(path ?? '').replace(/^\/+/, '');
+  return `${trimmedBase}/${trimmedPath}`;
+};
+
+export const buildAppUrl = (path) => {
+  const trimmedBase = APP_BASE_URL.replace(/\/+$/, '');
+  const trimmedPath = String(path ?? '').replace(/^\/+/, '');
+  return `${trimmedBase}/${trimmedPath}`;
+};
+
+export const apiEndpoints = {
+  rootItems: (botId) => buildApiUrl(`/bots/${botId}/items`),
+  subflowItems: (botId, groupId) => buildApiUrl(`/bots/${botId}/items-subflow/${groupId}`),
+  itemsSummary: (botId) => buildApiUrl(`/bots/${botId}/items-summary`),
+  botVariables: (botId) => buildApiUrl(`/bots/variable/${botId}`),
+  botTags: (botId, mode = 'bot') =>
+    buildApiUrl(mode === 'ura' ? `/ivr/${botId}/tag` : `/bots/tag/${botId}`),
+};

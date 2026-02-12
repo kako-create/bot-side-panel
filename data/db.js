@@ -1,0 +1,465 @@
+import { normalizeText } from '../shared/utils.js';
+
+const DB_NAME = 'bot_side_panel_db_v1';
+const DB_VERSION = 3;
+
+const STORE_META = 'meta';
+const STORE_GROUPS = 'groups';
+const STORE_SUMMARY = 'summary_items';
+const STORE_FULL = 'full_items';
+const STORE_VARIABLES = 'bot_variables';
+const STORE_TAGS = 'bot_tags';
+
+let dbPromise = null;
+
+const openDb = () => {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
+    try {
+      const idbFactory = globalThis.indexedDB || (typeof self !== 'undefined' ? self.indexedDB : null);
+      if (!idbFactory) {
+        reject(new Error('IndexedDB indisponível neste contexto.'));
+        return;
+      }
+      const request = idbFactory.open(DB_NAME, DB_VERSION);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(STORE_META)) {
+          db.createObjectStore(STORE_META, { keyPath: 'botId' });
+        }
+        if (!db.objectStoreNames.contains(STORE_GROUPS)) {
+          const store = db.createObjectStore(STORE_GROUPS, { keyPath: ['botId', 'groupId'] });
+          store.createIndex('by_bot', 'botId', { unique: false });
+          store.createIndex('by_bot_level', ['botId', 'level'], { unique: false });
+          store.createIndex('by_bot_title', ['botId', 'titleFold'], { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_SUMMARY)) {
+          const store = db.createObjectStore(STORE_SUMMARY, { keyPath: ['botId', 'itemId'] });
+          store.createIndex('by_bot', 'botId', { unique: false });
+          store.createIndex('by_bot_group', ['botId', 'groupId'], { unique: false });
+          store.createIndex('by_bot_group_type', ['botId', 'groupId', 'typeFold'], { unique: false });
+          store.createIndex('by_bot_type', ['botId', 'typeFold'], { unique: false });
+          store.createIndex('by_bot_title', ['botId', 'titleFold'], { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_FULL)) {
+          const store = db.createObjectStore(STORE_FULL, { keyPath: ['botId', 'itemId'] });
+          store.createIndex('by_bot', 'botId', { unique: false });
+          store.createIndex('by_bot_group', ['botId', 'groupId'], { unique: false });
+          store.createIndex('by_bot_type', ['botId', 'typeFold'], { unique: false });
+          store.createIndex('by_bot_title', ['botId', 'titleFold'], { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_VARIABLES)) {
+          const store = db.createObjectStore(STORE_VARIABLES, { keyPath: ['botId', 'varId'] });
+          store.createIndex('by_bot', 'botId', { unique: false });
+          store.createIndex('by_bot_group', ['botId', 'groupFold'], { unique: false });
+          store.createIndex('by_bot_label', ['botId', 'labelFold'], { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_TAGS)) {
+          const store = db.createObjectStore(STORE_TAGS, { keyPath: ['botId', 'tagId'] });
+          store.createIndex('by_bot', 'botId', { unique: false });
+          store.createIndex('by_bot_label', ['botId', 'labelFold'], { unique: false });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error('IDB_OPEN_ERROR'));
+    } catch (error) {
+      reject(error);
+    }
+  });
+  return dbPromise;
+};
+
+const deleteByIndex = async (db, storeName, indexName, key) =>
+  new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readwrite');
+    const store = tx.objectStore(storeName);
+    const index = store.index(indexName);
+    const range = IDBKeyRange.only(key);
+    const req = index.openCursor(range);
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (!cursor) {
+        resolve();
+        return;
+      }
+      cursor.delete();
+      cursor.continue();
+    };
+    req.onerror = () => reject(req.error || new Error('IDB_CURSOR_ERROR'));
+  });
+
+const withStore = async (storeName, mode, callback) => {
+  const db = await openDb();
+  return await new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, mode);
+    const store = tx.objectStore(storeName);
+    const result = callback(store, tx);
+    tx.oncomplete = () => resolve(result);
+    tx.onerror = () => reject(tx.error || new Error('IDB_TX_ERROR'));
+    tx.onabort = () => reject(tx.error || new Error('IDB_TX_ABORT'));
+  });
+};
+
+const cursorToArray = (request) =>
+  new Promise((resolve, reject) => {
+    const out = [];
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (cursor) {
+        out.push(cursor.value);
+        cursor.continue();
+        return;
+      }
+      resolve(out);
+    };
+    request.onerror = () => reject(request.error || new Error('IDB_CURSOR_ERROR'));
+  });
+
+export const saveMeta = async (meta) =>
+  withStore(STORE_META, 'readwrite', (store) => {
+    store.put(meta);
+  });
+
+export const getMeta = async (botId) =>
+  withStore(STORE_META, 'readonly', (store) =>
+    new Promise((resolve, reject) => {
+      const req = store.get(botId);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error || new Error('IDB_GET_ERROR'));
+    }),
+  );
+
+export const listMetas = async () =>
+  withStore(STORE_META, 'readonly', (store) => cursorToArray(store.openCursor()));
+
+export const saveGroups = async (botId, groups) =>
+  withStore(STORE_GROUPS, 'readwrite', (store) => {
+    for (const group of groups) {
+      store.put({ ...group, botId });
+    }
+  });
+
+export const saveSummaryItems = async (botId, items) =>
+  withStore(STORE_SUMMARY, 'readwrite', (store) => {
+    for (const item of items) {
+      store.put({ ...item, botId });
+    }
+  });
+
+export const saveFullItems = async (botId, items) =>
+  withStore(STORE_FULL, 'readwrite', (store) => {
+    for (const item of items) {
+      store.put({ ...item, botId });
+    }
+  });
+
+export const saveBotVariables = async (botId, variables) =>
+  withStore(STORE_VARIABLES, 'readwrite', (store) => {
+    for (const variable of variables) {
+      store.put({ ...variable, botId });
+    }
+  });
+
+export const saveBotTags = async (botId, tags) =>
+  withStore(STORE_TAGS, 'readwrite', (store) => {
+    for (const tag of tags) {
+      store.put({ ...tag, botId });
+    }
+  });
+
+export const getGroupsByBot = async (botId) =>
+  withStore(STORE_GROUPS, 'readonly', (store) => {
+    const index = store.index('by_bot');
+    return cursorToArray(index.openCursor(IDBKeyRange.only(botId)));
+  });
+
+export const listBotVariables = async (botId) =>
+  withStore(STORE_VARIABLES, 'readonly', (store) => {
+    const index = store.index('by_bot');
+    return cursorToArray(index.openCursor(IDBKeyRange.only(botId)));
+  });
+
+export const listBotTags = async (botId) =>
+  withStore(STORE_TAGS, 'readonly', (store) => {
+    const index = store.index('by_bot');
+    return cursorToArray(index.openCursor(IDBKeyRange.only(botId)));
+  });
+
+export const searchFullItems = async (
+  botId,
+  { type, query, deep = false, limit = 1000, filterFn } = {},
+) => {
+  const typeFold = type ? normalizeText(type) : null;
+  const queryFold = normalizeText(query);
+  return withStore(STORE_FULL, 'readonly', (store) =>
+    new Promise((resolve, reject) => {
+      const results = [];
+      const index = typeFold ? store.index('by_bot_type') : store.index('by_bot');
+      const range = typeFold ? IDBKeyRange.only([botId, typeFold]) : IDBKeyRange.only(botId);
+
+      const req = index.openCursor(range);
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) {
+          resolve(results);
+          return;
+        }
+        const value = cursor.value;
+        if (queryFold) {
+          const titleMatch = value.titleFold?.includes(queryFold);
+          let deepMatch = false;
+          if (!titleMatch && deep) {
+            try {
+              const json = JSON.stringify(value.payload ?? {});
+              deepMatch = normalizeText(json).includes(queryFold);
+            } catch {
+              deepMatch = false;
+            }
+          }
+          if (!titleMatch && !deepMatch) {
+            cursor.continue();
+            return;
+          }
+        }
+        if (typeof filterFn === 'function') {
+          let matched = false;
+          try {
+            matched = Boolean(filterFn(value));
+          } catch {
+            matched = false;
+          }
+          if (!matched) {
+            cursor.continue();
+            return;
+          }
+        }
+        results.push(value);
+        if (limit && results.length >= limit) {
+          resolve(results);
+          return;
+        }
+        cursor.continue();
+      };
+      req.onerror = () => reject(req.error || new Error('IDB_CURSOR_ERROR'));
+    }),
+  );
+};
+
+export const getSummaryItemsByGroup = async (botId, groupId, { type, query, limit } = {}) => {
+  const typeFold = type ? normalizeText(type) : null;
+  const queryFold = normalizeText(query);
+  return withStore(STORE_SUMMARY, 'readonly', (store) =>
+    new Promise((resolve, reject) => {
+      const results = [];
+      const index = typeFold ? store.index('by_bot_group_type') : store.index('by_bot_group');
+      const range = typeFold
+        ? IDBKeyRange.only([botId, groupId, typeFold])
+        : IDBKeyRange.only([botId, groupId]);
+
+      const req = index.openCursor(range);
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) {
+          resolve(results);
+          return;
+        }
+        const value = cursor.value;
+        if (queryFold) {
+          const titleMatch = value.titleFold?.includes(queryFold);
+          const typeMatch = value.typeFold?.includes(queryFold);
+          if (!(titleMatch || typeMatch)) {
+            cursor.continue();
+            return;
+          }
+        }
+        results.push(value);
+        if (limit && results.length >= limit) {
+          resolve(results);
+          return;
+        }
+        cursor.continue();
+      };
+      req.onerror = () => reject(req.error || new Error('IDB_CURSOR_ERROR'));
+    }),
+  );
+};
+
+export const countSummaryItemsByGroup = async (botId, groupId, { type, query } = {}) => {
+  const typeFold = type ? normalizeText(type) : null;
+  const queryFold = normalizeText(query);
+  return withStore(STORE_SUMMARY, 'readonly', (store) =>
+    new Promise((resolve, reject) => {
+      let count = 0;
+      const index = typeFold ? store.index('by_bot_group_type') : store.index('by_bot_group');
+      const range = typeFold
+        ? IDBKeyRange.only([botId, groupId, typeFold])
+        : IDBKeyRange.only([botId, groupId]);
+
+      const req = index.openCursor(range);
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) {
+          resolve(count);
+          return;
+        }
+        const value = cursor.value;
+        if (queryFold) {
+          const titleMatch = value.titleFold?.includes(queryFold);
+          const typeMatch = value.typeFold?.includes(queryFold);
+          if (!(titleMatch || typeMatch)) {
+            cursor.continue();
+            return;
+          }
+        }
+        count += 1;
+        cursor.continue();
+      };
+      req.onerror = () => reject(req.error || new Error('IDB_CURSOR_ERROR'));
+    }),
+  );
+};
+
+export const clearSummaryData = async (botId) => {
+  const db = await openDb();
+  await deleteByIndex(db, STORE_GROUPS, 'by_bot', botId);
+  await deleteByIndex(db, STORE_SUMMARY, 'by_bot', botId);
+};
+
+export const clearFullData = async (botId) => {
+  const db = await openDb();
+  await deleteByIndex(db, STORE_FULL, 'by_bot', botId);
+};
+
+export const clearVariablesData = async (botId) => {
+  const db = await openDb();
+  await deleteByIndex(db, STORE_VARIABLES, 'by_bot', botId);
+};
+
+export const clearTagsData = async (botId) => {
+  const db = await openDb();
+  await deleteByIndex(db, STORE_TAGS, 'by_bot', botId);
+};
+
+export const clearBotData = async (botId) => {
+  const db = await openDb();
+  await deleteByIndex(db, STORE_GROUPS, 'by_bot', botId);
+  await deleteByIndex(db, STORE_SUMMARY, 'by_bot', botId);
+  await deleteByIndex(db, STORE_FULL, 'by_bot', botId);
+  await deleteByIndex(db, STORE_VARIABLES, 'by_bot', botId);
+  await deleteByIndex(db, STORE_TAGS, 'by_bot', botId);
+  await withStore(STORE_META, 'readwrite', (store) => store.delete(botId));
+};
+
+export const buildSummaryItemRecord = (item, { groupId, level } = {}) => {
+  const title = item?.title ?? '';
+  const type = item?.type ?? '';
+  return {
+    itemId: item?._id ?? item?.id ?? item?.itemId ?? crypto.randomUUID(),
+    title,
+    titleFold: normalizeText(title),
+    type,
+    typeFold: normalizeText(type),
+    groupId,
+    level: level ?? null,
+    subflowFor: item?.subflowFor ?? null,
+    positionOnScreen: item?.positionOnScreen ?? null,
+  };
+};
+
+export const buildFullItemRecord = (item, { groupId } = {}) => {
+  const title = item?.title ?? '';
+  const type = item?.type ?? '';
+  return {
+    itemId: item?._id ?? item?.id ?? item?.itemId ?? crypto.randomUUID(),
+    title,
+    titleFold: normalizeText(title),
+    type,
+    typeFold: normalizeText(type),
+    groupId,
+    payload: item ?? null,
+  };
+};
+
+export const buildVariableRecord = (variable, { groupKey } = {}) => {
+  const item = variable && typeof variable === 'object' ? variable : { value: variable };
+  const labelRaw =
+    item.name ??
+    item.key ??
+    item.variable ??
+    item.title ??
+    item.label ??
+    item.tag ??
+    item.value ??
+    item._id ??
+    item.id ??
+    '';
+  const label = String(labelRaw ?? '').trim();
+  const rawId = item._id ?? item.id ?? null;
+  const baseId = rawId ? String(rawId) : label ? String(label) : null;
+  const resolvedGroupKey = groupKey ?? item.__group ?? item.type ?? '';
+  const groupMap = {
+    bot: 'Bot',
+    global: 'Global',
+    vtex: 'VTEX',
+    ads: 'ADS',
+    human: 'Human',
+    outros: 'Outros',
+  };
+  const groupLabel = groupMap[String(resolvedGroupKey).toLowerCase()] ?? String(resolvedGroupKey || 'Outros');
+  const labelText = label || 'Sem nome';
+
+  return {
+    varId: baseId ? `${resolvedGroupKey || 'outros'}:${baseId}` : crypto.randomUUID(),
+    label: labelText,
+    labelFold: normalizeText(labelText),
+    group: String(resolvedGroupKey || ''),
+    groupLabel: groupLabel.trim() || 'Outros',
+    groupFold: normalizeText(groupLabel),
+    payload: item ?? null,
+  };
+};
+
+export const buildTagRecord = (tag) => {
+  const item = tag && typeof tag === 'object' ? tag : { value: tag };
+  const labelRaw =
+    item.name ??
+    item.key ??
+    item.variable ??
+    item.title ??
+    item.label ??
+    item.tag ??
+    item.value ??
+    item._id ??
+    item.id ??
+    '';
+  const label = String(labelRaw ?? '').trim() || 'Sem nome';
+  const rawId = item._id ?? item.id ?? null;
+  const baseId = rawId ? String(rawId) : label ? String(label) : null;
+  return {
+    tagId: baseId ?? crypto.randomUUID(),
+    label,
+    labelFold: normalizeText(label),
+    payload: item ?? null,
+  };
+};
+
+export const buildGroupRecord = (group, { itemsCount, typeCounts } = {}) => {
+  const title = group?.title ?? '';
+  return {
+    groupId: group?._id ?? group?.id ?? group?.groupId ?? crypto.randomUUID(),
+    title,
+    titleFold: normalizeText(title),
+    level: group?.level ?? null,
+    itemsCount: itemsCount ?? 0,
+    typeCounts: typeCounts ?? {},
+  };
+};
+
+export const STORE_NAMES = {
+  META: STORE_META,
+  GROUPS: STORE_GROUPS,
+  SUMMARY: STORE_SUMMARY,
+  FULL: STORE_FULL,
+  VARIABLES: STORE_VARIABLES,
+  TAGS: STORE_TAGS,
+};

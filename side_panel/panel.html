@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="pt-br">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BOT Side Panel</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <main class="popup container">
+	      <header class="popup__header">
+	        <div class="popup__header-content">
+	          <div class="header-top">
+	            <div class="type-select screen-select" id="screen-select">
+	              <button class="type-select__button" id="screen-button" type="button">
+	                <span class="type-select__label" id="screen-label">Consulta & status</span>
+	              </button>
+	              <div class="type-select__menu" id="screen-menu" hidden></div>
+	            </div>
+	          </div>
+
+	          <h1 class="text-title" id="app-title">Consulta & status</h1>
+	        </div>
+	        <img class="popup__logo" src="../assets/logo.png" alt="BOT" />
+	      </header>
+
+	      <div class="screen-root" id="screen-root"></div>
+
+	      <template id="tpl-screen-consulta">
+	        <section class="card surface status-card" id="status">
+	          <div class="section-header">
+	            <span class="semaforo" id="status-light"></span>
+	            <h2 class="text-section-title">Sincronização</h2>
+	            <div class="section-actions">
+	              <button class="btn btn--ghost btn--sm section-toggle" data-target="status-content" type="button">
+	                Recolher
+	              </button>
+	            </div>
+	          </div>
+	          <div id="status-content" class="section-body">
+	            <div class="status-grid">
+	              <div class="status-row">
+	                <span class="label">Bot</span>
+	                <strong id="status-bot">-</strong>
+	              </div>
+	            </div>
+
+	            <div class="status-metrics status-metrics--tight">
+	              <div class="metric">
+	                <span>Token</span>
+	                <strong id="status-auth">-</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Sync</span>
+	                <strong id="status-sync">-</strong>
+	              </div>
+	            </div>
+
+	            <div class="status-metrics">
+	              <div class="metric">
+	                <span>Resumo</span>
+	                <strong id="stat-summary-count">-</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Completo</span>
+	                <strong id="stat-full-count">-</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Grupos</span>
+	                <strong id="stat-groups-count">-</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Cache</span>
+	                <strong id="stat-cache-size">-</strong>
+	              </div>
+	            </div>
+	            <div class="actions actions-group">
+	              <button id="sync-summary" class="btn btn--primary">Sinc. Busca rápida</button>
+	              <button id="sync-full" class="btn btn--secondary actions-end">Sinc. Busca avançada</button>
+	            </div>
+	          </div>
+	        </section>
+
+	        <section class="card surface" id="quick-section" hidden>
+	          <div class="section-header">
+	            <span class="semaforo" id="quick-light"></span>
+	            <h2 class="text-section-title">Busca rápida</h2>
+	            <div class="section-actions">
+	              <button class="btn btn--ghost btn--sm section-toggle" data-target="quick-content" type="button">
+	                Recolher
+	              </button>
+	            </div>
+	          </div>
+	          <div id="quick-content" class="section-body">
+	            <div class="filters">
+	              <label class="field">
+	                <span>Tipo</span>
+	                <div class="type-select" id="type-filter-select">
+	                  <button class="type-select__button" id="type-filter-button" type="button">
+	                    <span class="type-select__label">Todos os tipos</span>
+	                  </button>
+	                  <div class="type-select__menu" id="type-filter-menu" hidden></div>
+	                </div>
+	                <select id="type-filter" hidden>
+	                  <option value="">Todos os tipos</option>
+	                </select>
+	              </label>
+	              <label class="field">
+	                <span>Buscar</span>
+	                <input id="search-input" type="text" placeholder="Digite para filtrar (contém)" />
+	              </label>
+	            </div>
+	            <div class="actions">
+	              <button id="search-apply" class="btn btn--ghost btn--sm">Aplicar filtros</button>
+	              <button class="btn btn--ghost btn--sm group-toggle" data-scope="quick" type="button">
+	                Abrir grupos
+	              </button>
+	            </div>
+	            <div class="groups" id="groups"></div>
+	            <div class="empty" id="groups-empty">Nenhum grupo encontrado.</div>
+	          </div>
+	        </section>
+
+	        <section class="card surface" id="advanced-section" hidden>
+	          <div class="section-header">
+	            <span class="semaforo" id="advanced-light"></span>
+	            <h2 class="text-section-title">Busca avançada</h2>
+	            <div class="section-actions">
+	              <button class="btn btn--ghost btn--sm section-toggle" data-target="advanced-content" type="button">
+	                Recolher
+	              </button>
+	            </div>
+	          </div>
+	          <div id="advanced-content" class="section-body">
+	            <div class="search-filters advanced-filters">
+	              <div class="filter-group">
+	                <label>Tipo de bloco</label>
+	                <div class="type-select" id="advanced-type-select">
+	                  <button class="type-select__button" id="advanced-type-button" type="button">
+	                    <span class="type-select__label">Todos os tipos</span>
+	                  </button>
+	                  <div class="type-select__menu" id="advanced-type-menu" hidden></div>
+	                </div>
+	                <select id="advanced-type" hidden>
+	                  <option value="">Todos os tipos</option>
+	                </select>
+	              </div>
+
+	              <div class="filter-specific" id="filter-specific-container" hidden>
+	                <div class="filter-specific-header">
+	                  <label>Filtro específico do tipo</label>
+	                  <label class="filter-specific-toggle">
+	                    <input type="checkbox" id="filter-specific-toggle" />
+	                    <span></span>
+	                  </label>
+	                </div>
+	                <div id="filter-specific-content" class="filter-specific-content"></div>
+	              </div>
+
+	              <div class="filter-group">
+	                <div class="filter-group-header">
+	                  <label class="filter-label" for="advanced-text">Buscar por texto</label>
+	                  <label class="checkbox" for="advanced-deep">
+	                    <input type="checkbox" id="advanced-deep" />
+	                    Busca completa
+	                  </label>
+	                </div>
+	                <input type="text" id="advanced-text" placeholder="Buscar no título" />
+	              </div>
+	            </div>
+
+	            <div class="actions actions-between">
+	              <div class="actions-group">
+	                <button id="advanced-search" class="btn btn--primary" type="button">Buscar</button>
+	                <button id="advanced-clear" class="btn btn--ghost" type="button">Limpar</button>
+	                <button class="btn btn--ghost btn--sm group-toggle" data-scope="advanced" type="button">
+	                  Abrir grupos
+	                </button>
+	              </div>
+	              <span class="hint" id="advanced-total">0 blocos encontrados</span>
+	            </div>
+
+	            <div id="advanced-results" class="search-results"></div>
+	          </div>
+	        </section>
+	      </template>
+
+	      <template id="tpl-screen-variaveis">
+	        <section class="card surface status-card">
+	          <div class="section-header">
+	            <span class="semaforo" id="vars-light"></span>
+	            <h2 class="text-section-title">Sincronização</h2>
+	          </div>
+	          <div class="section-body">
+	            <div class="status-grid">
+	              <div class="status-row">
+	                <span class="label">Bot</span>
+	                <strong id="vars-bot">-</strong>
+	              </div>
+	            </div>
+
+	            <div class="status-metrics status-metrics--tight">
+	              <div class="metric">
+	                <span>Token</span>
+	                <strong id="vars-auth">-</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Status</span>
+	                <strong id="vars-status">-</strong>
+	              </div>
+	            </div>
+
+	            <div class="status-metrics">
+	              <div class="metric">
+	                <span>Total</span>
+	                <strong id="vars-total">0</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Última sync</span>
+	                <strong id="vars-last-sync">-</strong>
+	              </div>
+	            </div>
+
+	            <div class="actions actions-group">
+	              <button id="vars-sync" class="btn btn--secondary" type="button">Sincronizar</button>
+	            </div>
+	          </div>
+	        </section>
+
+	        <section class="card surface">
+	          <div class="section-header">
+	            <h2 class="text-section-title">Variáveis</h2>
+	          </div>
+	          <div class="section-body">
+	            <div id="vars-results" class="search-results"></div>
+	          </div>
+	        </section>
+	      </template>
+
+	      <template id="tpl-screen-tags">
+	        <section class="card surface status-card">
+	          <div class="section-header">
+	            <span class="semaforo" id="tags-light"></span>
+	            <h2 class="text-section-title">Sincronização</h2>
+	          </div>
+	          <div class="section-body">
+	            <div class="status-grid">
+	              <div class="status-row">
+	                <span class="label">Bot</span>
+	                <strong id="tags-bot">-</strong>
+	              </div>
+	            </div>
+
+	            <div class="status-metrics status-metrics--tight">
+	              <div class="metric">
+	                <span>Token</span>
+	                <strong id="tags-auth">-</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Status</span>
+	                <strong id="tags-status">-</strong>
+	              </div>
+	            </div>
+
+	            <div class="status-metrics">
+	              <div class="metric">
+	                <span>Total</span>
+	                <strong id="tags-total">0</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Última sync</span>
+	                <strong id="tags-last-sync">-</strong>
+	              </div>
+	            </div>
+
+	            <div class="actions actions-group">
+	              <button id="tags-sync" class="btn btn--secondary" type="button">Sincronizar</button>
+	            </div>
+	          </div>
+	        </section>
+
+	        <section class="card surface">
+	          <div class="section-header">
+	            <h2 class="text-section-title">TAGs</h2>
+	          </div>
+	          <div class="section-body">
+	            <div id="tags-results" class="search-results"></div>
+	          </div>
+	        </section>
+	      </template>
+
+	      <template id="tpl-screen-armazenamento">
+	        <section class="card surface">
+	          <div class="section-header">
+	            <h2 class="text-section-title">Resumo</h2>
+	            <div class="section-actions">
+	              <button id="storage-refresh" class="btn btn--ghost btn--sm" type="button">Atualizar</button>
+	            </div>
+	          </div>
+	          <div class="section-body">
+	            <div class="status-metrics status-metrics--tight">
+	              <div class="metric">
+	                <span>Bots</span>
+	                <strong id="storage-bots-count">0</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Cache</span>
+	                <strong id="storage-cache-size">0 B</strong>
+	              </div>
+	            </div>
+	            <p class="muted" id="storage-error" hidden></p>
+	          </div>
+	        </section>
+
+	        <section class="card surface">
+	          <div class="section-header">
+	            <h2 class="text-section-title">Bots sincronizados</h2>
+	          </div>
+	          <div class="section-body">
+	            <div class="bots" id="storage-bots"></div>
+	            <div class="muted" id="storage-empty" hidden>Nenhum bot sincronizado.</div>
+	          </div>
+	        </section>
+	      </template>
+	    </main>
+
+	    <script type="module" src="panel.js"></script>
+	  </body>
+	</html>
