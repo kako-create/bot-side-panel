@@ -13,6 +13,7 @@ import {
 } from '../data/db.js';
 import { chunkArray, normalizeText } from '../shared/utils.js';
 import { SYNC_BATCH_SIZE, SYNC_CONCURRENCY } from '../config/limits.js';
+import { MODE_BOT, MODE_URA } from '../config/modeResolver.js';
 
 let currentController = null;
 let syncState = {
@@ -84,6 +85,25 @@ const countTypes = (items) => {
     counts[key].count += 1;
   }
   return counts;
+};
+
+const detectModeFromItems = (items) => {
+  if (!Array.isArray(items) || items.length === 0) return null;
+  let hasIvr = false;
+  let hasBot = false;
+  for (const item of items) {
+    const type = normalizeText(item?.type ?? '');
+    if (!type) continue;
+    if (type.startsWith('ivr')) {
+      hasIvr = true;
+      continue;
+    }
+    if (type === 'group' || type === 'grupo') continue;
+    hasBot = true;
+  }
+  if (hasIvr) return MODE_URA;
+  if (hasBot) return MODE_BOT;
+  return null;
 };
 
 const runQueue = async (tasks, concurrency, worker, signal) => {
@@ -206,6 +226,8 @@ export const startSync = async ({ botId, authorization, fullItems = false, onPro
 
     let fullCount = 0;
     let fullBytes = 0;
+    let hasIvrType = false;
+    let hasBotType = false;
 
     const worker = async (task) => {
       if (signal.aborted) return;
@@ -214,6 +236,9 @@ export const startSync = async ({ botId, authorization, fullItems = false, onPro
           ? await fetchRootItems(botId, authorization, signal)
           : await fetchSubflowItems(botId, task.groupId, authorization, signal);
       const items = Array.isArray(payload?.items) ? payload.items : Array.isArray(payload) ? payload : [];
+      const detected = detectModeFromItems(items);
+      if (detected === MODE_URA) hasIvrType = true;
+      if (detected === MODE_BOT) hasBotType = true;
       if (task.kind === 'root') {
         const title = payload?.botTitle;
         if (title) {
@@ -238,12 +263,18 @@ export const startSync = async ({ botId, authorization, fullItems = false, onPro
     if (signal.aborted) return getSyncState();
 
     setState({ fullCount, phase: 'full_done' });
-    await mergeMeta(botId, {
+    const detectedMode = hasIvrType ? MODE_URA : hasBotType ? MODE_BOT : null;
+    const fullMeta = {
       lastItemsSyncAt: new Date().toISOString(),
       summaryCount,
       fullCount,
       fullBytes,
-    });
+    };
+    if (detectedMode) {
+      fullMeta.mode = detectedMode;
+      fullMeta.modeDetectedAt = new Date().toISOString();
+    }
+    await mergeMeta(botId, fullMeta);
 
     setState({ running: false, phase: 'idle' });
     if (onProgress) onProgress(getSyncState());

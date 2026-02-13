@@ -1,4 +1,5 @@
 import { callBG, MessageType } from '../../services/messaging.js';
+import { normalizeText } from '../../shared/utils.js';
 
 const TEMPLATE_ID = 'tpl-screen-armazenamento';
 
@@ -6,6 +7,8 @@ const createInitialState = () => ({
   bots: [],
   loading: false,
   error: null,
+  groupsOpenAll: true,
+  openOrgGroups: {},
 });
 
 let rootEl = null;
@@ -29,6 +32,7 @@ const initEls = () => {
   const q = (sel) => rootEl?.querySelector(sel) ?? null;
   return {
     refreshBtn: q('#storage-refresh'),
+    groupsToggleBtn: q('#storage-groups-toggle'),
     botsCount: q('#storage-bots-count'),
     cacheSize: q('#storage-cache-size'),
     error: q('#storage-error'),
@@ -77,6 +81,65 @@ const sortBots = (bots) => {
   return list;
 };
 
+const normalizeCompanyName = (value) => {
+  const text = String(value ?? '').trim();
+  return text || null;
+};
+
+const resolveOrgGroupInfo = (bot) => {
+  const orgId = String(bot?.orgId ?? '').trim();
+  const companyName = normalizeCompanyName(bot?.companyFantasyName);
+  if (orgId) {
+    return {
+      key: `org:${orgId}`,
+      orgId,
+      label: companyName || `Org ${orgId}`,
+      isUnknown: false,
+    };
+  }
+  if (companyName) {
+    return {
+      key: `name:${normalizeText(companyName) || companyName.toLowerCase()}`,
+      orgId: '',
+      label: companyName,
+      isUnknown: false,
+    };
+  }
+  return {
+    key: 'org:unknown',
+    orgId: '',
+    label: 'Sem organização',
+    isUnknown: true,
+  };
+};
+
+const groupBotsByOrg = (bots) => {
+  const map = new Map();
+  for (const bot of Array.isArray(bots) ? bots : []) {
+    const groupInfo = resolveOrgGroupInfo(bot);
+    if (!map.has(groupInfo.key)) {
+      map.set(groupInfo.key, {
+        key: groupInfo.key,
+        label: groupInfo.label,
+        orgId: groupInfo.orgId,
+        isUnknown: groupInfo.isUnknown,
+        bots: [],
+      });
+    }
+    map.get(groupInfo.key).bots.push(bot);
+  }
+
+  const groups = Array.from(map.values());
+  groups.forEach((group) => {
+    group.bots = sortBots(group.bots);
+  });
+  groups.sort((a, b) => {
+    if (a.isUnknown !== b.isUnknown) return a.isUnknown ? 1 : -1;
+    return String(a.label).localeCompare(String(b.label), 'pt-BR');
+  });
+  return groups;
+};
+
 const updateSummary = () => {
   const bots = Array.isArray(state.bots) ? state.bots : [];
   const totalBytes = bots.reduce((acc, b) => acc + getBotBytes(b), 0);
@@ -98,6 +161,81 @@ const updateSummary = () => {
     els.refreshBtn.disabled = Boolean(state.loading);
     els.refreshBtn.textContent = state.loading ? 'Atualizando...' : 'Atualizar';
   }
+  if (els.groupsToggleBtn) {
+    const hasBots = bots.length > 0;
+    els.groupsToggleBtn.disabled = !hasBots || state.loading;
+    els.groupsToggleBtn.textContent = state.groupsOpenAll && hasBots ? 'Fechar grupos' : 'Abrir grupos';
+  }
+};
+
+const buildBotRow = (bot) => {
+  const row = document.createElement('div');
+  row.className = 'bot-row';
+  if (bot.pinned) row.classList.add('pinned');
+
+  const info = document.createElement('div');
+  info.className = 'bot-info';
+
+  const title = document.createElement('div');
+  title.className = 'bot-title';
+  title.textContent = bot.botTitle || bot.botId;
+  info.appendChild(title);
+
+  const idLine = document.createElement('div');
+  idLine.className = 'bot-meta';
+  idLine.textContent = bot.botTitle ? bot.botId : '';
+  info.appendChild(idLine);
+
+  const sizeBytes = getBotBytes(bot);
+  const stats = document.createElement('div');
+  stats.className = 'bot-stats';
+  stats.textContent =
+    `Resumo: ${bot.summaryCount ?? 0} | ` +
+    `Completo: ${bot.fullCount ?? 0} | ` +
+    `Variáveis: ${bot.variablesCount ?? 0} | ` +
+    `TAGs: ${bot.tagsCount ?? 0} | ` +
+    `Cache: ${formatBytes(sizeBytes)}`;
+  info.appendChild(stats);
+
+  const dates = document.createElement('div');
+  dates.className = 'bot-dates';
+  dates.textContent =
+    `Resumo: ${formatDate(bot.lastSummarySyncAt)} | ` +
+    `Completo: ${formatDate(bot.lastItemsSyncAt)} | ` +
+    `Variáveis: ${formatDate(bot.lastVariablesSyncAt)} | ` +
+    `TAGs: ${formatDate(bot.lastTagsSyncAt)}`;
+  info.appendChild(dates);
+
+  const actions = document.createElement('div');
+  actions.className = 'bot-actions';
+
+  const pinBtn = document.createElement('button');
+  pinBtn.className = 'bot-pin';
+  pinBtn.type = 'button';
+  pinBtn.textContent = bot.pinned ? 'Desfixar' : 'Fixar';
+  pinBtn.addEventListener('click', async () => {
+    await callBG(MessageType.TOGGLE_PIN, { botId: bot.botId, pinned: !bot.pinned });
+    await loadBots();
+  });
+
+  const removeBtn = document.createElement('button');
+  removeBtn.className = 'bot-remove';
+  removeBtn.type = 'button';
+  removeBtn.textContent = 'Remover';
+  removeBtn.disabled = Boolean(bot.pinned);
+  removeBtn.title = bot.pinned ? 'Desfixe para remover' : 'Remover dados do bot';
+  removeBtn.addEventListener('click', async () => {
+    const res = await callBG(MessageType.REMOVE_BOT, { botId: bot.botId });
+    if (!res.ok) return;
+    await loadBots();
+  });
+
+  actions.appendChild(pinBtn);
+  actions.appendChild(removeBtn);
+
+  row.appendChild(info);
+  row.appendChild(actions);
+  return row;
 };
 
 const renderBots = () => {
@@ -106,75 +244,60 @@ const renderBots = () => {
 
   const bots = Array.isArray(state.bots) ? state.bots : [];
   if (els.empty) els.empty.hidden = bots.length > 0;
+  if (bots.length === 0) return;
 
-  for (const bot of bots) {
-    const row = document.createElement('div');
-    row.className = 'bot-row';
-    if (bot.pinned) row.classList.add('pinned');
+  const groups = groupBotsByOrg(bots);
+  for (const group of groups) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'search-group';
 
-    const info = document.createElement('div');
-    info.className = 'bot-info';
+    const header = document.createElement('div');
+    header.className = 'search-group-header';
 
-    const title = document.createElement('div');
-    title.className = 'bot-title';
-    title.textContent = bot.botTitle || bot.botId;
-    info.appendChild(title);
+    const left = document.createElement('div');
+    left.className = 'bot-group-label';
 
-    const idLine = document.createElement('div');
-    idLine.className = 'bot-meta';
-    idLine.textContent = bot.botTitle ? bot.botId : '';
-    info.appendChild(idLine);
+    const title = document.createElement('span');
+    title.textContent = group.label;
+    left.appendChild(title);
 
-    const sizeBytes = getBotBytes(bot);
-    const stats = document.createElement('div');
-    stats.className = 'bot-stats';
-    stats.textContent =
-      `Resumo: ${bot.summaryCount ?? 0} | ` +
-      `Completo: ${bot.fullCount ?? 0} | ` +
-      `Variáveis: ${bot.variablesCount ?? 0} | ` +
-      `TAGs: ${bot.tagsCount ?? 0} | ` +
-      `Cache: ${formatBytes(sizeBytes)}`;
-    info.appendChild(stats);
+    if (group.orgId) {
+      const org = document.createElement('span');
+      org.className = 'bot-group-id';
+      org.textContent = group.orgId;
+      left.appendChild(org);
+    }
 
-    const dates = document.createElement('div');
-    dates.className = 'bot-dates';
-    dates.textContent =
-      `Resumo: ${formatDate(bot.lastSummarySyncAt)} | ` +
-      `Completo: ${formatDate(bot.lastItemsSyncAt)} | ` +
-      `Variáveis: ${formatDate(bot.lastVariablesSyncAt)} | ` +
-      `TAGs: ${formatDate(bot.lastTagsSyncAt)}`;
-    info.appendChild(dates);
+    const right = document.createElement('span');
+    right.className = 'tag-group-meta';
+    right.textContent = String(group.bots.length);
 
-    const actions = document.createElement('div');
-    actions.className = 'bot-actions';
+    header.appendChild(left);
+    header.appendChild(right);
 
-    const pinBtn = document.createElement('button');
-    pinBtn.className = 'bot-pin';
-    pinBtn.type = 'button';
-    pinBtn.textContent = bot.pinned ? 'Desfixar' : 'Fixar';
-    pinBtn.addEventListener('click', async () => {
-      await callBG(MessageType.TOGGLE_PIN, { botId: bot.botId, pinned: !bot.pinned });
-      await loadBots();
+    const content = document.createElement('div');
+    content.className = 'search-group-content';
+    group.bots.forEach((bot) => content.appendChild(buildBotRow(bot)));
+
+    const isOpen = state.groupsOpenAll || Boolean(state.openOrgGroups[group.key]);
+    if (!isOpen) {
+      content.setAttribute('hidden', 'true');
+    }
+    header.addEventListener('click', () => {
+      if (state.groupsOpenAll) return;
+      const currentlyOpen = !content.hasAttribute('hidden');
+      if (currentlyOpen) {
+        content.setAttribute('hidden', 'true');
+        delete state.openOrgGroups[group.key];
+      } else {
+        content.removeAttribute('hidden');
+        state.openOrgGroups[group.key] = true;
+      }
     });
 
-    const removeBtn = document.createElement('button');
-    removeBtn.className = 'bot-remove';
-    removeBtn.type = 'button';
-    removeBtn.textContent = 'Remover';
-    removeBtn.disabled = Boolean(bot.pinned);
-    removeBtn.title = bot.pinned ? 'Desfixe para remover' : 'Remover dados do bot';
-    removeBtn.addEventListener('click', async () => {
-      const res = await callBG(MessageType.REMOVE_BOT, { botId: bot.botId });
-      if (!res.ok) return;
-      await loadBots();
-    });
-
-    actions.appendChild(pinBtn);
-    actions.appendChild(removeBtn);
-
-    row.appendChild(info);
-    row.appendChild(actions);
-    els.list.appendChild(row);
+    wrapper.appendChild(header);
+    wrapper.appendChild(content);
+    els.list.appendChild(wrapper);
   }
 };
 
@@ -189,13 +312,21 @@ const loadBots = async () => {
     if (!response.ok) {
       state.bots = [];
       state.error = response.error?.message ?? 'Falha ao listar bots.';
+      state.groupsOpenAll = false;
+      state.openOrgGroups = {};
     } else {
       const bots = response.data?.bots ?? [];
       state.bots = sortBots(bots);
+      if (!state.bots.length) {
+        state.groupsOpenAll = false;
+        state.openOrgGroups = {};
+      }
     }
   } catch (error) {
     state.bots = [];
     state.error = String(error?.message ?? error);
+    state.groupsOpenAll = false;
+    state.openOrgGroups = {};
   } finally {
     state.loading = false;
   }
@@ -206,6 +337,14 @@ const loadBots = async () => {
 
 const init = async () => {
   if (els.refreshBtn) on(els.refreshBtn, 'click', () => loadBots());
+  if (els.groupsToggleBtn) {
+    on(els.groupsToggleBtn, 'click', () => {
+      state.groupsOpenAll = !state.groupsOpenAll;
+      state.openOrgGroups = {};
+      updateSummary();
+      renderBots();
+    });
+  }
   await loadBots();
 };
 
@@ -247,4 +386,3 @@ export const screenArmazenamento = {
     };
   },
 };
-

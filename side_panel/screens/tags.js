@@ -1,10 +1,13 @@
 import { callBG, MessageType } from '../../services/messaging.js';
-import { getMeta, listBotTags } from '../../data/db.js';
+import { getMeta, listBotTags, searchFullItems } from '../../data/db.js';
 import { saveActiveScreenId } from '../router.js';
 import { saveConsultaIntent } from '../consultaIntent.js';
+import { normalizeText } from '../../shared/utils.js';
 
 const TEMPLATE_ID = 'tpl-screen-tags';
 const TAG_GROUP_REGEX = /^([A-Za-z]{3})\.(\d{3,4})$/;
+const MODE_BOT = 'bot';
+const MODE_URA = 'ura';
 
 const createInitialState = () => ({
   botId: null,
@@ -13,7 +16,14 @@ const createInitialState = () => ({
   lastError: null,
   meta: null,
   tags: [],
+  unusedTags: [],
+  usageScanError: null,
   openGroups: {},
+  collapsedSections: {
+    status: false,
+    used: false,
+    unused: false,
+  },
 });
 
 let rootEl = null;
@@ -39,6 +49,12 @@ const setLight = (el, color) => {
   if (color) el.classList.add(`semaforo--${color}`);
 };
 
+const setHidden = (el, hidden) => {
+  if (!el) return;
+  if (hidden) el.setAttribute('hidden', 'true');
+  else el.removeAttribute('hidden');
+};
+
 const formatDate = (value) => {
   if (!value) return '-';
   try {
@@ -50,6 +66,7 @@ const formatDate = (value) => {
 
 const initEls = () => {
   const q = (sel) => rootEl?.querySelector(sel) ?? null;
+  const qa = (sel) => (rootEl ? Array.from(rootEl.querySelectorAll(sel)) : []);
   return {
     light: q('#tags-light'),
     bot: q('#tags-bot'),
@@ -58,7 +75,11 @@ const initEls = () => {
     total: q('#tags-total'),
     lastSync: q('#tags-last-sync'),
     syncBtn: q('#tags-sync'),
-    results: q('#tags-results'),
+    usedSection: q('#tags-used-section'),
+    unusedSection: q('#tags-unused-section'),
+    usedResults: q('#tags-used-results'),
+    unusedResults: q('#tags-unused-results'),
+    sectionToggles: qa('.section-toggle'),
   };
 };
 
@@ -70,8 +91,15 @@ const updateHeader = () => {
   setText(els.auth, state.hasAuth ? 'ok' : 'ausente');
 };
 
+const getCanonicalMode = () => {
+  const raw = String(state.meta?.mode ?? '').trim().toLowerCase();
+  if (raw === MODE_BOT || raw === MODE_URA) return raw;
+  return null;
+};
+
 const updateStatus = () => {
   const hasBotAndAuth = Boolean(state.botId) && Boolean(state.hasAuth);
+  const mode = getCanonicalMode();
   const synced = Boolean(state.meta?.lastTagsSyncAt);
   if (!hasBotAndAuth) {
     setText(els.status, 'Aguardando bot/token');
@@ -88,6 +116,11 @@ const updateStatus = () => {
     setLight(els.light, 'red');
     return;
   }
+  if (!mode) {
+    setText(els.status, 'Modo indefinido. Execute "Sinc. Busca avançada".');
+    setLight(els.light, 'red');
+    return;
+  }
   setText(els.status, synced ? 'OK' : 'Pronto para sincronizar');
   setLight(els.light, synced ? 'green' : 'red');
 };
@@ -100,11 +133,58 @@ const updateStats = () => {
 
 const updateSyncButton = () => {
   if (!els.syncBtn) return;
-  const ready = Boolean(state.botId) && Boolean(state.hasAuth) && !state.syncing;
+  const ready = Boolean(state.botId) && Boolean(state.hasAuth) && Boolean(getCanonicalMode()) && !state.syncing;
   els.syncBtn.disabled = !ready;
 };
 
 const getTagLabel = (rec) => String(rec?.label ?? rec?.payload?.tag ?? rec?.payload?.label ?? '').trim();
+
+const getTagEntryLabel = (entry) => {
+  if (entry === null || entry === undefined) return '';
+  if (typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean') {
+    return String(entry).trim();
+  }
+  if (typeof entry !== 'object') return '';
+  const raw =
+    entry.name ??
+    entry.label ??
+    entry.tag ??
+    entry.value ??
+    entry.key ??
+    entry._id ??
+    entry.id ??
+    '';
+  return String(raw ?? '').trim();
+};
+
+const normalizeTagKey = (value) => normalizeText(String(value ?? '').trim());
+
+const toTimestamp = (value) => {
+  const ms = new Date(value ?? '').getTime();
+  return Number.isFinite(ms) ? ms : 0;
+};
+
+const isFullSyncOlderThanTagsSync = (meta) => {
+  const fullSyncAt = toTimestamp(meta?.lastItemsSyncAt);
+  const tagsSyncAt = toTimestamp(meta?.lastTagsSyncAt);
+  return Boolean(fullSyncAt && tagsSyncAt && fullSyncAt < tagsSyncAt);
+};
+
+const getSyncGapLabel = (meta) => {
+  const fullSyncAt = toTimestamp(meta?.lastItemsSyncAt);
+  const tagsSyncAt = toTimestamp(meta?.lastTagsSyncAt);
+  if (!fullSyncAt || !tagsSyncAt || tagsSyncAt <= fullSyncAt) return '';
+
+  const diffMs = tagsSyncAt - fullSyncAt;
+  const totalMinutes = Math.floor(diffMs / (60 * 1000));
+  if (totalMinutes < 1) return '<1min';
+
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours <= 0) return `${totalMinutes}min`;
+  if (minutes <= 0) return `${hours}h`;
+  return `${hours}h ${minutes}min`;
+};
 
 const buildGroups = (records) => {
   const groups = new Map(); // key -> { key, min, max, width, items: [] }
@@ -196,34 +276,14 @@ const buildTagRow = (item) => {
   return row;
 };
 
-const renderTags = () => {
-  if (!els.results) return;
-  els.results.innerHTML = '';
-
-  if (!state.botId) {
-    const empty = document.createElement('div');
-    empty.className = 'muted';
-    empty.textContent = 'Selecione um bot no Boteria para ver as TAGs.';
-    els.results.appendChild(empty);
-    return;
-  }
-
-  const items = Array.isArray(state.tags) ? state.tags : [];
-  if (!items.length) {
-    const empty = document.createElement('div');
-    empty.className = 'muted';
-    empty.textContent = 'Nenhuma TAG encontrada.';
-    els.results.appendChild(empty);
-    return;
-  }
-
-  const { groups, others } = buildGroups(items);
+const renderTagGroups = ({ target, records, scopePrefix, emptyMessage }) => {
+  const { groups, others } = buildGroups(records);
   const allEmpty = groups.length === 0 && others.length === 0;
   if (allEmpty) {
     const empty = document.createElement('div');
     empty.className = 'muted';
-    empty.textContent = 'Nenhuma TAG encontrada.';
-    els.results.appendChild(empty);
+    empty.textContent = emptyMessage;
+    target.appendChild(empty);
     return;
   }
 
@@ -248,23 +308,24 @@ const renderTags = () => {
     content.className = 'search-group-content';
     rows.forEach((row) => content.appendChild(buildTagRow(row)));
 
-    const isOpen = Boolean(state.openGroups[title]);
+    const groupStateKey = `${scopePrefix}:${title}`;
+    const isOpen = state.openGroups[groupStateKey] !== false;
     if (!isOpen) content.setAttribute('hidden', 'true');
 
     header.addEventListener('click', () => {
       const open = !content.hasAttribute('hidden');
       if (open) {
         content.setAttribute('hidden', 'true');
-        delete state.openGroups[title];
+        state.openGroups[groupStateKey] = false;
       } else {
         content.removeAttribute('hidden');
-        state.openGroups[title] = true;
+        state.openGroups[groupStateKey] = true;
       }
     });
 
     wrapper.appendChild(header);
     wrapper.appendChild(content);
-    els.results.appendChild(wrapper);
+    target.appendChild(wrapper);
   };
 
   groups.forEach((g) => {
@@ -280,11 +341,162 @@ const renderTags = () => {
   }
 };
 
+const renderSyncedTags = () => {
+  if (!els.usedResults) return;
+  els.usedResults.innerHTML = '';
+
+  if (!state.botId) {
+    const empty = document.createElement('div');
+    empty.className = 'muted';
+    empty.textContent = 'Selecione um bot no Boteria para ver as TAGs.';
+    els.usedResults.appendChild(empty);
+    return;
+  }
+
+  const items = Array.isArray(state.tags) ? state.tags : [];
+  if (!items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'muted';
+    empty.textContent = 'Nenhuma TAG encontrada.';
+    els.usedResults.appendChild(empty);
+    return;
+  }
+
+  renderTagGroups({
+    target: els.usedResults,
+    records: items,
+    scopePrefix: 'all',
+    emptyMessage: 'Nenhuma TAG encontrada.',
+  });
+};
+
+const renderUnusedTags = () => {
+  if (!els.unusedSection || !els.unusedResults) return;
+
+  const hasFullSync = Boolean(state.meta?.lastItemsSyncAt);
+  setHidden(els.unusedSection, !hasFullSync);
+  if (!hasFullSync) return;
+
+  els.unusedResults.innerHTML = '';
+
+  if (state.usageScanError) {
+    const warning = document.createElement('div');
+    warning.className = 'muted';
+    warning.textContent = `Erro ao validar uso das TAGs: ${state.usageScanError}`;
+    els.unusedResults.appendChild(warning);
+    return;
+  }
+
+  if (isFullSyncOlderThanTagsSync(state.meta)) {
+    const warning = document.createElement('div');
+    warning.className = 'muted tags-warning';
+    const gapLabel = getSyncGapLabel(state.meta);
+    warning.textContent =
+      'Atenção: a sincronização completa é mais antiga que a sync de TAGs; o resultado pode estar desatualizado.' +
+      (gapLabel ? ` (${gapLabel})` : '');
+    els.unusedResults.appendChild(warning);
+  }
+
+  const unused = Array.isArray(state.unusedTags) ? state.unusedTags : [];
+  renderTagGroups({
+    target: els.unusedResults,
+    records: unused,
+    scopePrefix: 'unused',
+    emptyMessage: 'Nenhuma TAG sem uso encontrada.',
+  });
+};
+
+const renderTags = () => {
+  renderSyncedTags();
+  renderUnusedTags();
+};
+
+const collectUsedTagKeys = async (botId) => {
+  const records = await searchFullItems(botId, { limit: 0 });
+  const used = new Set();
+  records.forEach((record) => {
+    const tags = record?.payload?.tags;
+    if (!Array.isArray(tags)) return;
+    tags.forEach((tag) => {
+      const label = getTagEntryLabel(tag);
+      const key = normalizeTagKey(label);
+      if (key) used.add(key);
+    });
+  });
+  return used;
+};
+
+const buildUnusedTags = async () => {
+  state.unusedTags = [];
+  state.usageScanError = null;
+
+  if (!state.botId || !state.meta?.lastItemsSyncAt) return;
+
+  try {
+    const usedTagKeys = await collectUsedTagKeys(state.botId);
+    if (disposed) return;
+    const sourceTags = Array.isArray(state.tags) ? state.tags : [];
+    state.unusedTags = sourceTags.filter((rec) => {
+      const label = getTagLabel(rec);
+      const key = normalizeTagKey(label);
+      if (!key) return false;
+      return !usedTagKeys.has(key);
+    });
+  } catch (error) {
+    if (disposed) return;
+    state.unusedTags = [];
+    state.usageScanError = String(error?.message ?? error);
+  }
+};
+
+const initSectionToggles = () => {
+  if (!Array.isArray(els.sectionToggles) || !els.sectionToggles.length) return;
+  els.sectionToggles.forEach((button) => {
+    const targetId = String(button?.dataset?.target ?? '').trim();
+    if (!targetId) return;
+    const target = rootEl?.querySelector(`#${targetId}`) ?? null;
+    if (!target) return;
+
+    const sectionKey =
+      targetId === 'tags-status-content'
+        ? 'status'
+        : targetId === 'tags-used-content'
+          ? 'used'
+          : targetId === 'tags-unused-content'
+            ? 'unused'
+            : null;
+    if (!sectionKey) return;
+
+    if (state.collapsedSections[sectionKey]) {
+      target.setAttribute('hidden', 'true');
+      button.textContent = 'Exibir';
+    } else {
+      target.removeAttribute('hidden');
+      button.textContent = 'Recolher';
+    }
+
+    on(button, 'click', () => {
+      const isHidden = target.hasAttribute('hidden');
+      if (isHidden) {
+        target.removeAttribute('hidden');
+        button.textContent = 'Recolher';
+        state.collapsedSections[sectionKey] = false;
+      } else {
+        target.setAttribute('hidden', 'true');
+        button.textContent = 'Exibir';
+        state.collapsedSections[sectionKey] = true;
+      }
+    });
+  });
+};
+
 const loadMetaAndTags = async () => {
   if (disposed) return;
   if (!state.botId) {
     state.meta = null;
     state.tags = [];
+    state.unusedTags = [];
+    state.usageScanError = null;
     return;
   }
   try {
@@ -298,6 +510,8 @@ const loadMetaAndTags = async () => {
   } catch {
     state.tags = [];
   }
+  if (disposed) return;
+  await buildUnusedTags();
 };
 
 const loadContext = async () => {
@@ -307,24 +521,54 @@ const loadContext = async () => {
   if (!response.ok || !response.data?.context) return;
 
   const prevBotId = state.botId;
+  const prevMeta = state.meta;
+  const prevMode = getCanonicalMode();
+  const prevTagsSyncAt = prevMeta?.lastTagsSyncAt ?? null;
+  const prevItemsSyncAt = prevMeta?.lastItemsSyncAt ?? null;
   state.botId = response.data.context.botId ?? null;
   state.hasAuth = Boolean(response.data.hasAuth);
-  updateHeader();
-  updateSyncButton();
-  updateStatus();
 
   if (state.botId !== prevBotId) {
     state.openGroups = {};
     await loadMetaAndTags();
-    updateHeader();
-    updateStats();
-    updateStatus();
     renderTags();
+  } else if (state.botId) {
+    try {
+      state.meta = await getMeta(state.botId);
+    } catch {
+      state.meta = null;
+    }
+    if (disposed) return;
+
+    const modeChanged = getCanonicalMode() !== prevMode;
+    const tagsSyncChanged = (state.meta?.lastTagsSyncAt ?? null) !== prevTagsSyncAt;
+    const itemsSyncChanged = (state.meta?.lastItemsSyncAt ?? null) !== prevItemsSyncAt;
+
+    if (tagsSyncChanged) {
+      try {
+        state.tags = await listBotTags(state.botId);
+      } catch {
+        state.tags = [];
+      }
+      if (disposed) return;
+    }
+    if (tagsSyncChanged || itemsSyncChanged) {
+      await buildUnusedTags();
+    }
+    if (tagsSyncChanged || itemsSyncChanged || modeChanged) {
+      updateStats();
+      renderTags();
+    }
   }
+
+  updateHeader();
+  updateSyncButton();
+  updateStatus();
+  updateStats();
 };
 
 const startSync = async () => {
-  if (!state.botId || !state.hasAuth || state.syncing) return;
+  if (!state.botId || !state.hasAuth || !getCanonicalMode() || state.syncing) return;
   state.syncing = true;
   state.lastError = null;
   updateSyncButton();
@@ -349,9 +593,9 @@ const startSync = async () => {
 
 const init = async () => {
   if (els.syncBtn) on(els.syncBtn, 'click', () => startSync());
+  initSectionToggles();
 
   await loadContext();
-  await loadMetaAndTags();
 
   updateHeader();
   updateStats();

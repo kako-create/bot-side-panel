@@ -242,8 +242,13 @@
 	          <div class="section-header">
 	            <span class="semaforo" id="tags-light"></span>
 	            <h2 class="text-section-title">Sincronização</h2>
+	            <div class="section-actions">
+	              <button class="btn btn--ghost btn--sm section-toggle" data-target="tags-status-content" type="button">
+	                Recolher
+	              </button>
+	            </div>
 	          </div>
-	          <div class="section-body">
+	          <div id="tags-status-content" class="section-body">
 	            <div class="status-grid">
 	              <div class="status-row">
 	                <span class="label">Bot</span>
@@ -279,12 +284,103 @@
 	          </div>
 	        </section>
 
-	        <section class="card surface">
+	        <section class="card surface" id="tags-used-section">
 	          <div class="section-header">
 	            <h2 class="text-section-title">TAGs</h2>
+	            <div class="section-actions">
+	              <button class="btn btn--ghost btn--sm section-toggle" data-target="tags-used-content" type="button">
+	                Recolher
+	              </button>
+	            </div>
+	          </div>
+	          <div id="tags-used-content" class="section-body">
+	            <div id="tags-used-results" class="search-results"></div>
+	          </div>
+	        </section>
+
+	        <section class="card surface" id="tags-unused-section" hidden>
+	          <div class="section-header">
+	            <h2 class="text-section-title">TAGs não usadas</h2>
+	            <div class="section-actions">
+	              <button class="btn btn--ghost btn--sm section-toggle" data-target="tags-unused-content" type="button">
+	                Recolher
+	              </button>
+	            </div>
+	          </div>
+	          <div id="tags-unused-content" class="section-body">
+	            <div id="tags-unused-results" class="search-results"></div>
+	          </div>
+	        </section>
+	      </template>
+
+	      <template id="tpl-screen-comparacao">
+	        <section class="card surface">
+	          <div class="section-header">
+	            <h2 class="text-section-title">Comparação</h2>
 	          </div>
 	          <div class="section-body">
-	            <div id="tags-results" class="search-results"></div>
+	            <div class="filters compare-selects">
+	              <label class="field">
+	                <span>Registro A (full sync)</span>
+	                <select id="cmp-left">
+	                  <option value="">Selecione um registro</option>
+	                </select>
+	              </label>
+	              <label class="field">
+	                <span>Registro B (full sync)</span>
+	                <select id="cmp-right">
+	                  <option value="">Selecione um registro</option>
+	                </select>
+	              </label>
+	            </div>
+	            <p class="muted" id="cmp-validation">Selecione dois registros para comparar.</p>
+	            <div class="actions actions-group">
+	              <button id="cmp-refresh" class="btn btn--ghost" type="button">Atualizar lista</button>
+	              <button id="cmp-run" class="btn btn--primary" type="button" disabled>Comparar registros</button>
+	            </div>
+	          </div>
+	        </section>
+
+	        <section class="card surface" id="cmp-property-section" hidden>
+	          <div class="section-header">
+	            <h2 class="text-section-title">Filtro por propriedade</h2>
+	          </div>
+	          <div class="section-body">
+	            <div class="filters compare-property-filters">
+	              <label class="field">
+	                <span>Campo alterado</span>
+	                <select id="cmp-property-filter" disabled>
+	                  <option value="">Todas as propriedades</option>
+	                </select>
+	              </label>
+	            </div>
+	            <div class="actions actions-group">
+	              <button id="cmp-property-clear" class="btn btn--ghost btn--sm" type="button" disabled>
+	                Limpar filtro
+	              </button>
+	            </div>
+	            <p class="muted" id="cmp-property-summary">Execute uma comparação para listar as propriedades.</p>
+	          </div>
+	        </section>
+
+	        <section class="card surface">
+	          <div class="section-header">
+	            <h2 class="text-section-title">Resultado da comparação</h2>
+	            <div class="section-actions">
+	              <button id="cmp-groups-toggle" class="btn btn--ghost btn--sm" type="button" disabled>
+	                Abrir grupos
+	              </button>
+	            </div>
+	          </div>
+	          <div class="section-body">
+	            <div class="status-grid">
+	              <div class="status-row">
+	                <span>Comparando</span>
+	                <strong id="cmp-pair">-</strong>
+	              </div>
+	            </div>
+	            <div id="cmp-summary" class="status-metrics"></div>
+	            <div id="cmp-details" class="search-results"></div>
 	          </div>
 	        </section>
 	      </template>
@@ -315,6 +411,11 @@
 	        <section class="card surface">
 	          <div class="section-header">
 	            <h2 class="text-section-title">Bots sincronizados</h2>
+	            <div class="section-actions">
+	              <button id="storage-groups-toggle" class="btn btn--ghost btn--sm" type="button" disabled>
+	                Abrir grupos
+	              </button>
+	            </div>
 	          </div>
 	          <div class="section-body">
 	            <div class="bots" id="storage-bots"></div>

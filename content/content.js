@@ -56,6 +56,15 @@
     if (!d || typeof d !== "object") return;
     if (d.type === "BOT_SP_AUTH" && d.token) {
       safeSendMessage({ type: "BOT_SP_AUTH", token: d.token });
+      return;
+    }
+    if (d.type === "BOT_SP_COMPANY" && d.orgId) {
+      safeSendMessage({
+        type: "BOT_SP_COMPANY_INFO",
+        orgId: d.orgId,
+        fantasyName: d.fantasyName,
+        url: d.href || location.href,
+      });
     }
   });
 

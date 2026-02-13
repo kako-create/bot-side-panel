@@ -1,8 +1,8 @@
 import { AUTO_SYNC_ENABLED, AUTO_SYNC_FULL_ITEMS } from '../config/flags.js';
 import { AUTH_SESSION_TTL_MS } from '../config/limits.js';
-import { DEFAULT_MODE, resolveContextFromUrl, normalizeMode } from '../config/modeResolver.js';
+import { DEFAULT_MODE, MODE_BOT, MODE_URA, resolveContextFromUrl, normalizeMode } from '../config/modeResolver.js';
 import { MessageType, ErrorCode, respondOk, respondErr } from '../services/messaging.js';
-import { safeGet, safeSet, safeRemove, mapStorageErrorCode } from '../services/storage.js';
+import { safeGet, safeSet, safeRemove } from '../services/storage.js';
 import { listMetas, clearBotData, getMeta, saveMeta } from '../data/db.js';
 import { startSync, getSyncState, cancelSync } from '../services/syncManager.js';
 import { syncBotVariables } from '../services/variablesSync.js';
@@ -95,6 +95,37 @@ const updateContextFromUrl = async (url) => {
   return true;
 };
 
+const resolveBotIdFromMessage = (message) => {
+  const explicitBotId = String(message?.botId ?? '').trim();
+  if (explicitBotId) return explicitBotId;
+  const fromUrl = resolveContextFromUrl(message?.url).botId;
+  if (fromUrl) return fromUrl;
+  return contextState.botId || null;
+};
+
+const normalizeCompanyPayload = (message) => {
+  const orgId = String(message?.orgId ?? '').trim();
+  const fantasyName = String(message?.fantasyName ?? '').trim();
+  if (!orgId || !fantasyName) return null;
+  return { orgId, fantasyName };
+};
+
+const getStoredMode = (meta) => {
+  const raw = String(meta?.mode ?? '').trim().toLowerCase();
+  if (raw === MODE_BOT || raw === MODE_URA) return raw;
+  return null;
+};
+
+const getSyncedMode = async (botId) => {
+  if (!botId) return null;
+  try {
+    const meta = await getMeta(botId);
+    return getStoredMode(meta);
+  } catch {
+    return null;
+  }
+};
+
 const broadcastStatus = (state) => {
   try {
     chrome.runtime.sendMessage({ type: MessageType.SYNC_STATUS, state }, () => {
@@ -160,11 +191,64 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       });
       return true;
     }
+    case MessageType.COMPANY_INFO: {
+      initPromise.then(async () => {
+        const company = normalizeCompanyPayload(message);
+        if (!company) {
+          respond(respondOk({ ok: false, skipped: 'invalid_payload' }));
+          return;
+        }
+
+        const targetBotId = resolveBotIdFromMessage(message);
+        if (!targetBotId) {
+          respond(respondOk({ ok: false, skipped: 'bot_not_found' }));
+          return;
+        }
+
+        try {
+          const current = await getMeta(targetBotId);
+          if (!current) {
+            respond(respondOk({ ok: false, skipped: 'meta_not_found' }));
+            return;
+          }
+
+          const sameOrg = String(current.orgId ?? '').trim() === company.orgId;
+          const sameName = String(current.companyFantasyName ?? '').trim() === company.fantasyName;
+          if (sameOrg && sameName) {
+            respond(respondOk({ ok: true, updated: false }));
+            return;
+          }
+
+          await saveMeta({
+            ...current,
+            botId: targetBotId,
+            orgId: company.orgId,
+            companyFantasyName: company.fantasyName,
+            companyUpdatedAt: new Date().toISOString(),
+          });
+          respond(respondOk({ ok: true, updated: true }));
+        } catch (error) {
+          respond(
+            respondErr(
+              ErrorCode.INTERNAL,
+              'Falha ao salvar dados da organização.',
+              String(error?.message ?? error),
+            ),
+          );
+        }
+      });
+      return true;
+    }
     case MessageType.GET_CONTEXT: {
-      initPromise.then(() => {
+      initPromise.then(async () => {
+        let mode = contextState.mode;
+        if (contextState.botId) {
+          const syncedMode = await getSyncedMode(contextState.botId);
+          if (syncedMode) mode = syncedMode;
+        }
         respond(
           respondOk({
-            context: { ...contextState },
+            context: { ...contextState, mode },
             hasAuth: Boolean(authSessionState.authorization),
             authUpdatedAt: authSessionState.updatedAt,
             storageError,
@@ -200,17 +284,26 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return true;
     }
     case MessageType.SYNC_VARIABLES: {
-      initPromise.then(() => {
+      initPromise.then(async () => {
         const requestedBotId = message?.botId ?? contextState.botId;
-        const requestedMode = normalizeMode(message?.mode ?? contextState.mode);
         if (!requestedBotId || !authSessionState.authorization) {
           respond(respondErr(ErrorCode.NOT_READY, 'botId ou token ausente.'));
+          return;
+        }
+        const syncedMode = await getSyncedMode(requestedBotId);
+        if (!syncedMode) {
+          respond(
+            respondErr(
+              ErrorCode.NOT_READY,
+              'Modo (BOT/URA) não identificado. Execute "Sinc. Busca avançada" para definir o modo.',
+            ),
+          );
           return;
         }
         syncBotVariables({
           botId: requestedBotId,
           authorization: authSessionState.authorization,
-          mode: requestedMode,
+          mode: syncedMode,
         })
           .then((data) => respond(respondOk(data)))
           .catch((error) =>
@@ -226,16 +319,26 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return true;
     }
     case MessageType.SYNC_TAGS: {
-      initPromise.then(() => {
+      initPromise.then(async () => {
         const requestedBotId = message?.botId ?? contextState.botId;
         if (!requestedBotId || !authSessionState.authorization) {
           respond(respondErr(ErrorCode.NOT_READY, 'botId ou token ausente.'));
           return;
         }
+        const syncedMode = await getSyncedMode(requestedBotId);
+        if (!syncedMode) {
+          respond(
+            respondErr(
+              ErrorCode.NOT_READY,
+              'Modo (BOT/URA) não identificado. Execute "Sinc. Busca avançada" para definir o modo.',
+            ),
+          );
+          return;
+        }
         syncBotTags({
           botId: requestedBotId,
           authorization: authSessionState.authorization,
-          mode: contextState.mode,
+          mode: syncedMode,
         })
           .then((data) => respond(respondOk(data)))
           .catch((error) =>

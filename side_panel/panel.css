@@ -540,6 +540,116 @@ select {
   margin-top: 12px;
 }
 
+.compare-selects {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.compare-property-filters {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.compare-line {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: #ffffff;
+}
+
+.compare-line--expandable {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.compare-line__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.compare-line__head-info {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.compare-line__title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.compare-line__desc {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.compare-line__details {
+  display: grid;
+  gap: 8px;
+  padding: 8px 10px 10px;
+  border-top: 1px dashed var(--border);
+  background: var(--color-surface-2);
+}
+
+.compare-line__details[hidden] {
+  display: none;
+}
+
+.compare-line__actions {
+  margin-top: 0;
+}
+
+.compare-line__ids {
+  margin: 0;
+}
+
+.compare-diff-list {
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.compare-diff-row {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  background: #ffffff;
+}
+
+.compare-diff-path {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.compare-diff-side {
+  font-size: 11px;
+  color: var(--muted);
+  word-break: break-word;
+}
+
+@media (max-width: 520px) {
+  .compare-selects {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.tags-warning {
+  font-weight: 700;
+}
+
 .search-group {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -708,6 +818,17 @@ select {
 .bot-row.pinned {
   border-color: color-mix(in srgb, var(--color-primary) 30%, var(--border));
   background: color-mix(in srgb, var(--color-primary) 6%, #ffffff);
+}
+
+.bot-group-label {
+  display: grid;
+  gap: 2px;
+}
+
+.bot-group-id {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 500;
 }
 
 .bot-info {

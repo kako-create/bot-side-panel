@@ -4,10 +4,11 @@ import { saveActiveScreenId } from '../router.js';
 import { saveConsultaIntent } from '../consultaIntent.js';
 
 const TEMPLATE_ID = 'tpl-screen-variaveis';
+const MODE_BOT = 'bot';
+const MODE_URA = 'ura';
 
 const createInitialState = () => ({
   botId: null,
-  mode: null,
   hasAuth: false,
   syncing: false,
   lastError: null,
@@ -70,8 +71,15 @@ const updateHeader = () => {
   setText(els.auth, state.hasAuth ? 'ok' : 'ausente');
 };
 
+const getCanonicalMode = () => {
+  const raw = String(state.meta?.mode ?? '').trim().toLowerCase();
+  if (raw === MODE_BOT || raw === MODE_URA) return raw;
+  return null;
+};
+
 const updateStatus = () => {
   const hasBotAndAuth = Boolean(state.botId) && Boolean(state.hasAuth);
+  const mode = getCanonicalMode();
   const synced = Boolean(state.meta?.lastVariablesSyncAt);
   if (!hasBotAndAuth) {
     setText(els.status, 'Aguardando bot/token');
@@ -88,6 +96,11 @@ const updateStatus = () => {
     setLight(els.light, 'red');
     return;
   }
+  if (!mode) {
+    setText(els.status, 'Modo indefinido. Execute "Sinc. Busca avançada".');
+    setLight(els.light, 'red');
+    return;
+  }
   setText(els.status, synced ? 'OK' : 'Pronto para sincronizar');
   setLight(els.light, synced ? 'green' : 'red');
 };
@@ -100,7 +113,7 @@ const updateStats = () => {
 
 const updateSyncButton = () => {
   if (!els.syncBtn) return;
-  const ready = Boolean(state.botId) && Boolean(state.hasAuth) && !state.syncing;
+  const ready = Boolean(state.botId) && Boolean(state.hasAuth) && Boolean(getCanonicalMode()) && !state.syncing;
   els.syncBtn.disabled = !ready;
 };
 
@@ -252,31 +265,55 @@ const loadContext = async () => {
   if (!response.ok || !response.data?.context) return;
 
   const prevBotId = state.botId;
+  const prevMeta = state.meta;
+  const prevMode = getCanonicalMode();
+  const prevVarsSyncAt = prevMeta?.lastVariablesSyncAt ?? null;
   state.botId = response.data.context.botId ?? null;
-  state.mode = response.data.context.mode ?? null;
   state.hasAuth = Boolean(response.data.hasAuth);
-  updateHeader();
-  updateSyncButton();
-  updateStatus();
 
   if (state.botId !== prevBotId) {
     state.openGroups = {};
     await loadMetaAndVariables();
-    updateHeader();
-    updateStats();
-    updateStatus();
     renderVariables();
+  } else if (state.botId) {
+    try {
+      state.meta = await getMeta(state.botId);
+    } catch {
+      state.meta = null;
+    }
+    if (disposed) return;
+
+    const modeChanged = getCanonicalMode() !== prevMode;
+    const varsSyncChanged = (state.meta?.lastVariablesSyncAt ?? null) !== prevVarsSyncAt;
+
+    if (varsSyncChanged) {
+      try {
+        state.variables = await listBotVariables(state.botId);
+      } catch {
+        state.variables = [];
+      }
+      if (disposed) return;
+    }
+    if (varsSyncChanged || modeChanged) {
+      updateStats();
+      renderVariables();
+    }
   }
+
+  updateHeader();
+  updateSyncButton();
+  updateStatus();
+  updateStats();
 };
 
 const startSync = async () => {
-  if (!state.botId || !state.hasAuth || state.syncing) return;
+  if (!state.botId || !state.hasAuth || !getCanonicalMode() || state.syncing) return;
   state.syncing = true;
   state.lastError = null;
   updateSyncButton();
   updateStatus();
 
-  const response = await callBG(MessageType.SYNC_VARIABLES, { botId: state.botId, mode: state.mode });
+  const response = await callBG(MessageType.SYNC_VARIABLES, { botId: state.botId });
   state.syncing = false;
   if (!response.ok) {
     state.lastError = response.error?.message ?? 'Falha ao sincronizar.';
@@ -297,7 +334,6 @@ const init = async () => {
   if (els.syncBtn) on(els.syncBtn, 'click', () => startSync());
 
   await loadContext();
-  await loadMetaAndVariables();
 
   updateHeader();
   updateStats();
