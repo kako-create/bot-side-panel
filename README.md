@@ -114,7 +114,3 @@ Reduzir tempo de análise/manutenção de fluxos, oferecendo no side panel:
 1. Ampliar cobertura de filtros específicos de tipos de bloco.
 2. Definir testes mínimos (fluxos críticos de sync e comparação).
 3. Estruturar versionamento e processo de release.
-
-## Licença
-
-A definir.
