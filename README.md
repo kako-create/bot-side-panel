@@ -100,6 +100,14 @@ Reduzir tempo de análise/manutenção de fluxos, oferecendo no side panel:
 - Comparação executa em memória no momento da consulta (não persiste resultado de merge).
 - Sem pipeline formal de release/versionamento automatizado.
 
+## Manifest por navegador
+
+- O `manifest.json` da raiz é o padrão para Chrome.
+- Versões alternativas ficam em:
+  - `browser/chrome/manifest.json`
+  - `browser/opera/manifest.json`
+- Para testar em outro navegador, copie o manifest desejado para a raiz antes de carregar a extensão.
+
 ## Instalação local
 
 1. Clone este repositório.
