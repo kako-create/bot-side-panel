@@ -1,68 +1,120 @@
 # BOT Side Panel
 
-Extensão de navegador (Chrome) para apoiar a operação no builder de BOT e URA, com foco em busca, sincronização de dados e navegação rápida entre blocos.
+Extensão Chrome para apoio operacional em builders de BOT e URA, com foco em consulta, comparação e navegação rápida.
 
-## Visão geral
+Status deste documento: atualizado com o estado real do projeto em **13/02/2026**.
 
-O projeto centraliza, no side panel, uma visão de consulta sobre estruturas de bots e URAs já abertas no portal.
-A proposta é reduzir tempo de análise e manutenção, principalmente em cenários com muitos blocos, variáveis e TAGs.
+## Objetivo
 
-## Como funciona na prática
+Reduzir tempo de análise/manutenção de fluxos, oferecendo no side panel:
 
-1. O usuário acessa o portal e abre um builder de BOT ou URA.
-2. A extensão identifica o contexto atual (bot, modo e domínio do portal).
-3. O painel permite sincronizar dados locais para busca rápida e busca avançada.
-4. Os resultados exibem atalhos para abrir diretamente o bloco no builder.
-5. Nas abas de Variáveis e TAGs, é possível sincronizar e acionar busca avançada no payload com um clique.
+- sincronização local dos dados do fluxo;
+- busca rápida e busca avançada em payload;
+- sincronização e análise de variáveis/TAGs;
+- comparação entre dois registros sincronizados;
+- abertura direta do bloco no builder.
 
-## Status atual do produto
+## Escopo funcional atual
 
-### Funcional hoje
+### 1. Contexto e autenticação
 
-- Modo BOT e modo URA com detecção automática do contexto.
-- Compatibilidade com os dois portais atuais (`https://bots.digitalcontact.cloud` e `https://new.boteria.com.br`).
-- Geração de links de resultado respeitando o mesmo domínio em que o usuário está logado.
-- Tela de Consulta com sincronização de busca rápida (resumo), sincronização de busca avançada (payload completo), busca por tipo e texto, busca completa no payload e filtros específicos para tipos selecionados.
-- Tela de Variáveis com sincronização, agrupamento e atalho para busca avançada no payload.
-- Tela de TAGs com sincronização, agrupamento e atalho para busca avançada no payload.
-- Tela de Armazenamento com visão de cache por bot, fixar/desfixar e remoção de dados.
+- Captura de `botId` e URL atual do builder.
+- Captura de token Bearer a partir das chamadas XHR/fetch da própria página.
+- Compatível com os domínios:
+  - `https://bots.digitalcontact.cloud`
+  - `https://new.boteria.com.br`
+- Links de abertura de bloco respeitam o domínio em uso.
 
-### Em evolução (incompleto)
+### 2. Sincronização (Consulta)
 
-- Cobertura de filtros específicos ainda parcial (BOT com cobertura principal dos tipos mais usados e URA com suporte inicial, ainda sem cobrir todo o catálogo).
-- Ajustes finos de UX e consistência visual entre telas.
-- Melhorias de mensagens de erro e diagnósticos para suporte operacional.
+- `Sinc. Busca rápida`: sincroniza resumo (grupos + itens resumidos).
+- `Sinc. Busca avançada`: sincroniza payload completo dos blocos.
+- Estado de sincronização com progresso e telemetria básica no painel.
+- Navegação por grupos com abrir/fechar.
 
-### Pendente (prioridade recomendada)
+### 3. Modo BOT/URA centralizado
 
-- Ampliar cobertura de filtros específicos para mais tipos de bloco (BOT e URA).
-- Consolidar documentação funcional por fluxo de uso.
-- Criar suíte mínima de testes automatizados para reduzir regressão.
-- Definir pipeline de release/versionamento para publicação contínua.
+- O modo canônico é definido no **full sync** (`Sinc. Busca avançada`) e salvo em `meta.mode`.
+- Regras de uso:
+  - TAGs e Variáveis só sincronizam se `meta.mode` existir.
+  - Comparação só executa com `mode` válido nos dois registros selecionados.
+  - Não há inferência distribuída por tela para decisões críticas.
 
-## Situação realista de implementação
+### 4. Tela Variáveis
 
-Este repositório está em estágio de **MVP operacional evolutivo**:
+- Sincroniza por endpoint correto conforme `meta.mode` (BOT ou URA).
+- Agrupa variáveis por categoria de origem.
+- Atalho de busca no payload pela aba de consulta.
+- Botão de sincronização bloqueado quando modo ainda não foi definido via full sync.
 
-- Já é utilizável para trabalho real no dia a dia.
-- Entrega ganho prático em busca e navegação.
-- Ainda requer expansão de cobertura e maior maturidade de qualidade para escala.
+### 5. Tela TAGs
 
-## Instalação local (uso interno)
+- Sincroniza por endpoint correto conforme `meta.mode` (BOT ou URA).
+- Exibe dois blocos:
+  - TAGs sincronizadas.
+  - TAGs não usadas.
+- Cálculo de TAG não usada:
+  - varre o full payload;
+  - valida referência apenas no array `payload.tags`.
+- Exibe aviso quando full sync está mais antigo que a sync de TAGs, incluindo diferença de tempo.
+- Seções com botão de recolher/exibir.
 
-1. Baixe/clonar o repositório.
+### 6. Tela Comparação
+
+- Compara dois registros com full sync salvo (selecionados nos combos).
+- Bloqueia comparação BOT x URA.
+- Resultado inclui:
+  - resumo geral de diferenças;
+  - grupos recolhíveis;
+  - blocos alterados com detalhes de merge/diff por campo;
+  - filtro por propriedade alterada;
+  - links para abrir bloco A/B no builder.
+- Ignora campos instáveis de comparação como `positionOnScreen` e `updatedAt`, além de IDs.
+
+### 7. Tela Armazenamento
+
+- Lista registros sincronizados, com métricas e datas.
+- Fixar/desfixar e remover registro.
+- Agrupamento por organização (empresa), com abrir/fechar grupos.
+- Captura `fantasyName` por interceptação do endpoint:
+  - `https://api.bots.digitalcontact.cloud/api/v3/companies/<orgId>`
+- Dados de organização ficam persistidos no `meta` do bot/ura.
+
+## Arquitetura resumida
+
+- `content/`:
+  - injeta script para captar token e dados da empresa nas chamadas da página.
+- `background/`:
+  - gerencia contexto, sessão de auth, sync e mensagens.
+- `services/`:
+  - cliente de API e serviços de sincronização (summary/full/variáveis/TAGs).
+- `data/`:
+  - persistência local em IndexedDB (metas, grupos, itens, variáveis e TAGs).
+- `side_panel/screens/`:
+  - telas `consulta`, `variaveis`, `tags`, `comparacao`, `armazenamento`.
+
+## Limitações atuais
+
+- Projeto sem suíte automatizada de testes.
+- Cobertura de filtros específicos por tipo ainda evolutiva (BOT e URA).
+- Comparação executa em memória no momento da consulta (não persiste resultado de merge).
+- Sem pipeline formal de release/versionamento automatizado.
+
+## Instalação local
+
+1. Clone este repositório.
 2. Abra `chrome://extensions`.
 3. Ative `Modo do desenvolvedor`.
 4. Clique em `Carregar sem compactação`.
 5. Selecione a pasta raiz do projeto.
-6. Abra o portal BOT/URA e use o side panel da extensão.
+6. Abra um builder BOT/URA e use o side panel.
 
-## Próximos passos sugeridos
+## Próximos passos recomendados
 
-1. Fechar cobertura dos filtros específicos pendentes de URA e BOT.
-2. Definir um checklist de validação antes de cada release.
-3. Publicar uma primeira tag/versionamento estável para uso do time.
+1. Ampliar cobertura de filtros específicos de tipos de bloco.
+2. Definir testes mínimos (fluxos críticos de sync e comparação).
+3. Estruturar versionamento e processo de release.
 
 ## Licença
 
-Definir.
+A definir.
