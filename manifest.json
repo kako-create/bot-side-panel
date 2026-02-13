@@ -12,8 +12,15 @@
       "128": "assets/logo.png"
     }
   },
-  "side_panel": {
-    "default_path": "side_panel/panel.html"
+  "sidebar_action": {
+    "default_title": "BOT Busca",
+    "default_panel": "side_panel/panel.html",
+    "default_icon": {
+      "16": "assets/logo.png",
+      "32": "assets/logo.png",
+      "48": "assets/logo.png",
+      "128": "assets/logo.png"
+    }
   },
   "background": {
     "service_worker": "background/index.js",
@@ -25,7 +32,7 @@
     "48": "assets/logo.png",
     "128": "assets/logo.png"
   },
-  "permissions": ["storage", "activeTab", "sidePanel"],
+  "permissions": ["storage", "activeTab"],
   "host_permissions": [
     "https://api.bots.digitalcontact.cloud/*",
     "https://new.boteria.com.br/*",
