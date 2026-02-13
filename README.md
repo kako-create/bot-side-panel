@@ -108,6 +108,12 @@ Reduzir tempo de análise/manutenção de fluxos, oferecendo no side panel:
   - `browser/opera/manifest.json`
 - Para testar em outro navegador, copie o manifest desejado para a raiz antes de carregar a extensão.
 
+### Observação de uso no Opera GX
+
+- No Chrome, o painel abre pelo botão da extensão no topo.
+- No Opera GX (com `sidebar_action`), o painel abre pelo ícone da extensão na **Sidebar** do Opera.
+- Se a Sidebar não estiver visível, habilite nas configurações de aparência/Sidebar do Opera.
+
 ## Instalação local
 
 1. Clone este repositório.
