@@ -23,6 +23,7 @@ const createInitialState = () => ({
   groups: [],
   filteredCounts: null,
   typeLabelByValue: {},
+  typeIconByValue: {},
   query: '',
   type: '',
   expandedGroupId: null,
@@ -63,6 +64,12 @@ let modeConfig = getModeConfig(DEFAULT_MODE_ID);
 
 const setCurrentMode = (mode) => {
   modeConfig = getModeConfig(mode);
+};
+
+const normalizeModeValue = (mode) => {
+  const raw = String(mode ?? '').trim().toLowerCase();
+  if (raw === 'bot' || raw === 'ura') return raw;
+  return null;
 };
 
 const on = (target, event, handler, options) => {
@@ -222,6 +229,11 @@ const getIconsBasePath = () => modeConfig.iconsBasePath || 'assets/svgs/bot';
 const getTypeLabel = (type) =>
   typeof modeConfig.getTypeLabel === 'function' ? modeConfig.getTypeLabel(type) : type;
 
+const resolveTypeIconSource = (value) => {
+  if (!value) return null;
+  return state.typeIconByValue?.[value] ?? value;
+};
+
 const applySyncStatus = (status) => {
   state.syncStatus = status;
   setText(els.statusSync, formatSyncStatus(status));
@@ -323,7 +335,8 @@ const ensureTypeSelectBindings = (selectRoot, button, menu) => {
 const syncTypeSelectButton = ({ button, value, labels }) => {
   if (!button) return;
   const label = value ? labels[value] ?? value : 'Todos os tipos';
-  const iconUrl = value ? getTypeIconUrl(value, getIconsBasePath()) : null;
+  const iconSource = value ? resolveTypeIconSource(value) : null;
+  const iconUrl = iconSource ? getTypeIconUrl(iconSource, getIconsBasePath()) : null;
   button.innerHTML = '';
   if (iconUrl) {
     const icon = document.createElement('img');
@@ -338,13 +351,14 @@ const syncTypeSelectButton = ({ button, value, labels }) => {
   button.appendChild(labelEl);
 };
 
-const buildTypeOption = ({ value, label, count, onSelect }) => {
+const buildTypeOption = ({ value, label, iconType, count, onSelect }) => {
   const option = document.createElement('button');
   option.type = 'button';
   option.className = 'type-select__option';
   option.dataset.value = value;
 
-  const iconUrl = value ? getTypeIconUrl(value, getIconsBasePath()) : null;
+  const iconSource = value ? iconType || value : null;
+  const iconUrl = iconSource ? getTypeIconUrl(iconSource, getIconsBasePath()) : null;
   if (iconUrl) {
     const icon = document.createElement('img');
     icon.className = 'type-select__icon';
@@ -377,24 +391,29 @@ const updateTypeOptions = () => {
   ensureTypeSelectBindings(els.advancedTypeSelect, els.advancedTypeButton, els.advancedTypeMenu);
   const typeCounts = {};
   const typeLabelByValue = {};
+  const typeIconByValue = {};
 
   for (const group of state.groups) {
     const counts = group.typeCounts || {};
     Object.entries(counts).forEach(([key, value]) => {
       if (!key) return;
       const count = typeof value === 'number' ? value : value?.count ?? 0;
-      const label = typeof value === 'number' ? key : value?.label ?? key;
+      const sourceType = typeof value === 'number' ? key : value?.label ?? key;
       const mappedLabel = getTypeLabel(key);
+      const resolvedLabel = mappedLabel && mappedLabel !== key ? mappedLabel : sourceType;
       if (!typeCounts[key]) typeCounts[key] = 0;
       typeCounts[key] += count;
-      if (!typeLabelByValue[key]) typeLabelByValue[key] = mappedLabel;
+      if (!typeLabelByValue[key]) typeLabelByValue[key] = resolvedLabel;
+      if (!typeIconByValue[key]) typeIconByValue[key] = sourceType;
     });
   }
 
   state.typeLabelByValue = typeLabelByValue;
+  state.typeIconByValue = typeIconByValue;
   const entries = Object.entries(typeCounts).map(([key, count]) => ({
     value: key,
     label: typeLabelByValue[key] ?? key,
+    iconType: typeIconByValue[key] ?? key,
     count,
   }));
 
@@ -428,6 +447,7 @@ const updateTypeOptions = () => {
       buildTypeOption({
         value,
         label,
+        iconType: state.typeIconByValue[value] ?? value,
         count,
         onSelect: (selected) => {
           state.type = selected;
@@ -464,7 +484,7 @@ const updateTypeOptions = () => {
         },
       }),
     );
-    entries.forEach(({ value, label, count }) => {
+    entries.forEach(({ value, label, iconType, count }) => {
       const option = document.createElement('option');
       option.value = value;
       option.textContent = label;
@@ -473,6 +493,7 @@ const updateTypeOptions = () => {
         buildTypeOption({
           value,
           label,
+          iconType,
           count,
           onSelect: (selected) => {
             state.advanced.type = selected;
@@ -1049,9 +1070,21 @@ const loadMeta = async () => {
     state.meta = null;
   }
   if (disposed) return null;
+  const prevMode = state.mode;
+  const syncedMode = normalizeModeValue(state.meta?.mode);
+  if (syncedMode && syncedMode !== state.mode) {
+    state.mode = syncedMode;
+    setCurrentMode(state.mode);
+  }
+  const modeChanged = prevMode !== state.mode;
   updateBotLabel();
   updateMetaStats();
   updateSemaforo();
+  if (modeChanged && Array.isArray(state.groups) && state.groups.length > 0) {
+    updateTypeOptions();
+    renderGroups();
+    renderAdvancedResults(state.advanced.results || []);
+  }
   return state.meta;
 };
 

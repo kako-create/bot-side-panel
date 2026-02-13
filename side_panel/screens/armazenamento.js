@@ -279,16 +279,16 @@ const renderBots = () => {
     content.className = 'search-group-content';
     group.bots.forEach((bot) => content.appendChild(buildBotRow(bot)));
 
-    const isOpen = state.groupsOpenAll || Boolean(state.openOrgGroups[group.key]);
+    const groupPref = state.openOrgGroups[group.key];
+    const isOpen = state.groupsOpenAll ? groupPref !== false : groupPref === true;
     if (!isOpen) {
       content.setAttribute('hidden', 'true');
     }
     header.addEventListener('click', () => {
-      if (state.groupsOpenAll) return;
       const currentlyOpen = !content.hasAttribute('hidden');
       if (currentlyOpen) {
         content.setAttribute('hidden', 'true');
-        delete state.openOrgGroups[group.key];
+        state.openOrgGroups[group.key] = false;
       } else {
         content.removeAttribute('hidden');
         state.openOrgGroups[group.key] = true;
