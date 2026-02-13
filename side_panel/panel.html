@@ -423,6 +423,47 @@
 	          </div>
 	        </section>
 	      </template>
+
+	      <template id="tpl-screen-acesso-rapido">
+	        <section class="card surface">
+	          <div class="section-header">
+	            <h2 class="text-section-title">Resumo</h2>
+	            <div class="section-actions">
+	              <button id="quick-access-refresh" class="btn btn--ghost btn--sm" type="button">Atualizar</button>
+	            </div>
+	          </div>
+	          <div class="section-body">
+	            <div class="status-metrics status-metrics--tight">
+	              <div class="metric">
+	                <span>Registros</span>
+	                <strong id="quick-access-records-count">0</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Orgs</span>
+	                <strong id="quick-access-orgs-count">0</strong>
+	              </div>
+	            </div>
+	            <p class="muted" id="quick-access-error" hidden></p>
+	          </div>
+	        </section>
+
+	        <section class="card surface">
+	          <div class="section-header">
+	            <h2 class="text-section-title">Acesso rápido por organização</h2>
+	            <div class="section-actions">
+	              <button id="quick-access-groups-toggle" class="btn btn--ghost btn--sm" type="button" disabled>
+	                Abrir grupos
+	              </button>
+	            </div>
+	          </div>
+	          <div class="section-body">
+	            <div class="quick-access-list" id="quick-access-list"></div>
+	            <div class="muted" id="quick-access-empty" hidden>
+	              Nenhum registro com org e modo definido foi encontrado.
+	            </div>
+	          </div>
+	        </section>
+	      </template>
 	    </main>
 
 	    <script type="module" src="panel.js"></script>
