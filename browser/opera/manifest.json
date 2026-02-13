@@ -1,0 +1,60 @@
+{
+  "manifest_version": 3,
+  "name": "BOT Side Panel",
+  "version": "0.1.0",
+  "description": "Painel lateral para busca em bots e URAs.",
+  "action": {
+    "default_title": "BOT Busca",
+    "default_icon": {
+      "16": "assets/logo.png",
+      "32": "assets/logo.png",
+      "48": "assets/logo.png",
+      "128": "assets/logo.png"
+    }
+  },
+  "sidebar_action": {
+    "default_title": "BOT Busca",
+    "default_panel": "side_panel/panel.html",
+    "default_icon": {
+      "16": "assets/logo.png",
+      "32": "assets/logo.png",
+      "48": "assets/logo.png",
+      "128": "assets/logo.png"
+    }
+  },
+  "background": {
+    "service_worker": "background/index.js",
+    "type": "module"
+  },
+  "icons": {
+    "16": "assets/logo.png",
+    "32": "assets/logo.png",
+    "48": "assets/logo.png",
+    "128": "assets/logo.png"
+  },
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": [
+    "https://api.bots.digitalcontact.cloud/*",
+    "https://new.boteria.com.br/*",
+    "https://bots.digitalcontact.cloud/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://new.boteria.com.br/*",
+        "https://bots.digitalcontact.cloud/*"
+      ],
+      "js": ["content/content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["content/inject.js"],
+      "matches": [
+        "https://new.boteria.com.br/*",
+        "https://bots.digitalcontact.cloud/*"
+      ]
+    }
+  ]
+}
