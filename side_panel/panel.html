@@ -464,6 +464,63 @@
 	          </div>
 	        </section>
 	      </template>
+
+	      <template id="tpl-screen-configuracoes">
+	        <section class="card surface">
+	          <div class="section-header">
+	            <h2 class="text-section-title">Aparência</h2>
+	          </div>
+	          <div class="section-body settings-section">
+	            <div class="settings-mode-group" id="settings-appearance-options"></div>
+	            <div class="settings-theme-grid" id="settings-theme-grid"></div>
+	          </div>
+	        </section>
+
+	        <section class="card surface">
+	          <div class="section-header">
+	            <h2 class="text-section-title">Sincronização automática</h2>
+	          </div>
+	          <div class="section-body settings-section">
+	            <label class="settings-toggle-row">
+	              <span class="settings-toggle-text">
+	                <strong>AUTO_SYNC_ENABLED</strong>
+	                <small>Executa sincronização automática ao detectar troca de BOT/URA.</small>
+	              </span>
+	              <span class="settings-switch">
+	                <input id="settings-auto-sync-enabled" type="checkbox" />
+	                <span class="settings-switch-track"></span>
+	              </span>
+	            </label>
+
+	            <label class="settings-toggle-row">
+	              <span class="settings-toggle-text">
+	                <strong>AUTO_SYNC_FULL_ITEMS</strong>
+	                <small id="settings-auto-sync-full-items-hint">
+	                  Quando ativo, o auto sync executa também a busca avançada.
+	                </small>
+	              </span>
+	              <span class="settings-switch">
+	                <input id="settings-auto-sync-full-items" type="checkbox" />
+	                <span class="settings-switch-track"></span>
+	              </span>
+	            </label>
+	          </div>
+	        </section>
+
+	        <section class="card surface">
+	          <div class="section-header">
+	            <h2 class="text-section-title">Status</h2>
+	            <div class="section-actions">
+	              <button id="settings-reset" class="btn btn--ghost btn--sm" type="button">Restaurar padrão</button>
+	            </div>
+	          </div>
+	          <div class="section-body">
+	            <p class="settings-feedback settings-feedback--info" id="settings-feedback">
+	              As alterações são salvas automaticamente.
+	            </p>
+	          </div>
+	        </section>
+	      </template>
 	    </main>
 
 	    <script type="module" src="panel.js"></script>

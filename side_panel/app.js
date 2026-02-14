@@ -1,5 +1,8 @@
 import { loadActiveScreenId, saveActiveScreenId } from './router.js';
 import { screens, getScreenById } from './screens/index.js';
+import { APPEARANCE_SYSTEM } from '../config/userSettings.js';
+import { getCurrentSettings, loadSettings } from './runtimeSettings.js';
+import { applyPanelTheme, watchSystemTheme } from './themeManager.js';
 
 const renderError = (root, message) => {
   if (!root) return;
@@ -18,6 +21,19 @@ const renderError = (root, message) => {
 };
 
 export const initApp = async () => {
+  await loadSettings();
+  applyPanelTheme(getCurrentSettings());
+
+  watchSystemTheme(() => {
+    const settings = getCurrentSettings();
+    if (settings.appearance === APPEARANCE_SYSTEM) {
+      applyPanelTheme(settings);
+    }
+  });
+  window.addEventListener('bot-sp:settings-changed', (event) => {
+    applyPanelTheme(event?.detail?.settings ?? getCurrentSettings());
+  });
+
   const screenSelect = document.getElementById('screen-select');
   const screenButton = document.getElementById('screen-button');
   const screenLabel = document.getElementById('screen-label');
