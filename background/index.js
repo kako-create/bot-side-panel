@@ -1,6 +1,6 @@
-import { AUTO_SYNC_ENABLED, AUTO_SYNC_FULL_ITEMS } from '../config/flags.js';
 import { AUTH_SESSION_TTL_MS } from '../config/limits.js';
 import { DEFAULT_MODE, MODE_BOT, MODE_URA, resolveContextFromUrl, normalizeMode } from '../config/modeResolver.js';
+import { USER_SETTINGS_KEY, DEFAULT_USER_SETTINGS, sanitizeUserSettings, mergeUserSettings } from '../config/userSettings.js';
 import { MessageType, ErrorCode, respondOk, respondErr } from '../services/messaging.js';
 import { safeGet, safeSet, safeRemove } from '../services/storage.js';
 import { listMetas, clearBotData, getMeta, saveMeta } from '../data/db.js';
@@ -24,6 +24,8 @@ let authSessionState = {
   expiresAt: null,
 };
 
+let userSettingsState = { ...DEFAULT_USER_SETTINGS };
+
 let lastAutoSyncBotId = null;
 let storageError = null;
 
@@ -34,7 +36,7 @@ const isAuthSessionValid = (sessionAuth) => {
 };
 
 const initState = async () => {
-  const localResult = await safeGet('local', [CONTEXT_KEY]);
+  const localResult = await safeGet('local', [CONTEXT_KEY, USER_SETTINGS_KEY]);
   if (localResult.ok && localResult.data?.[CONTEXT_KEY]) {
     const stored = localResult.data[CONTEXT_KEY];
     contextState = {
@@ -43,6 +45,9 @@ const initState = async () => {
       appBaseUrl: stored?.appBaseUrl ?? null,
       updatedAt: stored?.updatedAt ?? null,
     };
+  }
+  if (localResult.ok) {
+    userSettingsState = sanitizeUserSettings(localResult.data?.[USER_SETTINGS_KEY] ?? DEFAULT_USER_SETTINGS);
   }
 
   const sessionResult = await safeGet('session', [AUTH_SESSION_KEY]);
@@ -64,6 +69,41 @@ const persistAuthState = async () => {
   const result = await safeSet('session', { [AUTH_SESSION_KEY]: authSessionState });
   if (!result.ok) storageError = result.error;
 };
+
+const persistUserSettingsState = async () => {
+  const result = await safeSet('local', { [USER_SETTINGS_KEY]: userSettingsState });
+  if (!result.ok) storageError = result.error;
+  return Boolean(result.ok);
+};
+
+const areSettingsEqual = (left, right) =>
+  left.appearance === right.appearance &&
+  left.themeId === right.themeId &&
+  left.autoSyncEnabled === right.autoSyncEnabled &&
+  left.autoSyncFullItems === right.autoSyncFullItems;
+
+const areSyncSettingsEqual = (left, right) =>
+  left.autoSyncEnabled === right.autoSyncEnabled &&
+  left.autoSyncFullItems === right.autoSyncFullItems;
+
+const updateUserSettingsState = async ({ patch = null, reset = false } = {}) => {
+  const prev = sanitizeUserSettings(userSettingsState);
+  const nextBase = reset ? sanitizeUserSettings(DEFAULT_USER_SETTINGS) : mergeUserSettings(prev, patch);
+  const next = {
+    ...nextBase,
+    updatedAt: new Date().toISOString(),
+  };
+  userSettingsState = next;
+  await persistUserSettingsState();
+  const changed = !areSettingsEqual(prev, next);
+  const syncChanged = !areSyncSettingsEqual(prev, next);
+  if (syncChanged) {
+    lastAutoSyncBotId = null;
+  }
+  return { settings: sanitizeUserSettings(userSettingsState), changed, syncChanged };
+};
+
+const getUserSettingsState = () => sanitizeUserSettings(userSettingsState);
 
 const updateAuthSession = async (token) => {
   const now = new Date();
@@ -110,6 +150,8 @@ const normalizeCompanyPayload = (message) => {
   return { orgId, fantasyName };
 };
 
+const isPlainObject = (value) => Object.prototype.toString.call(value) === '[object Object]';
+
 const getStoredMode = (meta) => {
   const raw = String(meta?.mode ?? '').trim().toLowerCase();
   if (raw === MODE_BOT || raw === MODE_URA) return raw;
@@ -140,7 +182,8 @@ const broadcastStatus = (state) => {
 };
 
 const triggerAutoSync = async () => {
-  if (!AUTO_SYNC_ENABLED) return;
+  const settings = getUserSettingsState();
+  if (!settings.autoSyncEnabled) return;
   if (!contextState.botId || !authSessionState.authorization) return;
   if (contextState.botId === lastAutoSyncBotId) return;
   lastAutoSyncBotId = contextState.botId;
@@ -148,7 +191,7 @@ const triggerAutoSync = async () => {
     await startSync({
       botId: contextState.botId,
       authorization: authSessionState.authorization,
-      fullItems: AUTO_SYNC_FULL_ITEMS,
+      fullItems: settings.autoSyncFullItems,
       onProgress: broadcastStatus,
     });
   } catch {
@@ -254,6 +297,56 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             storageError,
           }),
         );
+      });
+      return true;
+    }
+    case MessageType.GET_SETTINGS: {
+      initPromise.then(() => {
+        respond(respondOk({ settings: getUserSettingsState() }));
+      });
+      return true;
+    }
+    case MessageType.UPDATE_SETTINGS: {
+      initPromise.then(async () => {
+        try {
+          if (message?.settings && !isPlainObject(message.settings)) {
+            respond(respondErr(ErrorCode.INVALID_REQUEST, 'settings inválido.'));
+            return;
+          }
+          const result = await updateUserSettingsState({ patch: message?.settings ?? {} });
+          respond(respondOk(result));
+          if (result.syncChanged && result.settings.autoSyncEnabled) {
+            triggerAutoSync();
+          }
+        } catch (error) {
+          respond(
+            respondErr(
+              ErrorCode.INTERNAL,
+              'Falha ao salvar configurações.',
+              String(error?.message ?? error),
+            ),
+          );
+        }
+      });
+      return true;
+    }
+    case MessageType.RESET_SETTINGS: {
+      initPromise.then(async () => {
+        try {
+          const result = await updateUserSettingsState({ reset: true });
+          respond(respondOk(result));
+          if (result.syncChanged && result.settings.autoSyncEnabled) {
+            triggerAutoSync();
+          }
+        } catch (error) {
+          respond(
+            respondErr(
+              ErrorCode.INTERNAL,
+              'Falha ao restaurar configurações.',
+              String(error?.message ?? error),
+            ),
+          );
+        }
       });
       return true;
     }

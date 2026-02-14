@@ -4,6 +4,7 @@ import { screenTags } from './tags.js';
 import { screenComparacao } from './comparacao.js';
 import { screenArmazenamento } from './armazenamento.js';
 import { screenAcessoRapido } from './acessoRapido.js';
+import { screenConfiguracoes } from './configuracoes.js';
 
 export const screens = [
   screenConsulta,
@@ -12,6 +13,7 @@ export const screens = [
   screenComparacao,
   screenArmazenamento,
   screenAcessoRapido,
+  screenConfiguracoes,
 ];
 
 export const getScreenById = (id) => screens.find((screen) => screen.id === id) ?? null;
