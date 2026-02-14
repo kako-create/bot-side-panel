@@ -24,12 +24,22 @@ const normalizeTextFilterState = (raw) => {
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
     const value = raw.value == null ? '' : String(raw.value);
     const blank = Boolean(raw.blank);
-    return { value, blank };
+    const filled = Boolean(raw.filled);
+    if (blank && filled) return { value, blank: true, filled: false };
+    return { value, blank, filled };
   }
-  return { value: raw == null ? '' : String(raw), blank: false };
+  return { value: raw == null ? '' : String(raw), blank: false, filled: false };
 };
 
-export const createTextInput = ({ label, key, placeholder, state, onChange, allowBlank = true }) => {
+export const createTextInput = ({
+  label,
+  key,
+  placeholder,
+  state,
+  onChange,
+  allowBlank = true,
+  allowFilled = true,
+} = {}) => {
   const { row } = createRow(label);
 
   const normalized = normalizeTextFilterState(state?.[key]);
@@ -44,6 +54,11 @@ export const createTextInput = ({ label, key, placeholder, state, onChange, allo
   wrap.appendChild(input);
 
   let blankCheckbox = null;
+  let filledCheckbox = null;
+
+  const options = document.createElement('div');
+  options.className = 'filter-specific-text__options';
+
   if (allowBlank) {
     const blankLabel = document.createElement('label');
     blankLabel.className = 'checkbox filter-specific-blank';
@@ -53,33 +68,68 @@ export const createTextInput = ({ label, key, placeholder, state, onChange, allo
     blankCheckbox.checked = Boolean(normalized.blank);
     blankLabel.appendChild(blankCheckbox);
     blankLabel.appendChild(document.createTextNode('Em branco'));
-    wrap.appendChild(blankLabel);
-
-    input.disabled = blankCheckbox.checked;
-
-    blankCheckbox.addEventListener('change', () => {
-      input.disabled = blankCheckbox.checked;
-      const value = {
-        value: input.value,
-        blank: blankCheckbox.checked,
-      };
-      const autoEnable = value.blank || String(value.value || '').trim().length > 0;
-      onChange(key, value, autoEnable);
-    });
+    options.appendChild(blankLabel);
   }
 
-  input.addEventListener('input', () => {
-    const value = allowBlank
+  if (allowFilled) {
+    const filledLabel = document.createElement('label');
+    filledLabel.className = 'checkbox filter-specific-filled';
+
+    filledCheckbox = document.createElement('input');
+    filledCheckbox.type = 'checkbox';
+    filledCheckbox.checked = Boolean(normalized.filled);
+    filledLabel.appendChild(filledCheckbox);
+    filledLabel.appendChild(document.createTextNode('Preenchido'));
+    options.appendChild(filledLabel);
+  }
+
+  if (options.childElementCount > 0) {
+    wrap.appendChild(options);
+  }
+
+  const syncDisabled = () => {
+    const disabled = Boolean(blankCheckbox?.checked) || Boolean(filledCheckbox?.checked);
+    input.disabled = disabled;
+  };
+
+  const emitChange = () => {
+    const value = allowBlank || allowFilled
       ? {
           value: input.value,
           blank: Boolean(blankCheckbox?.checked),
+          filled: Boolean(filledCheckbox?.checked),
         }
       : input.value;
     const autoEnable =
       typeof value === 'string'
         ? String(value || '').trim().length > 0
-        : Boolean(value.blank) || String(value.value || '').trim().length > 0;
+        : Boolean(value.blank) || Boolean(value.filled) || String(value.value || '').trim().length > 0;
     onChange(key, value, autoEnable);
+  };
+
+  syncDisabled();
+
+  if (blankCheckbox) {
+    blankCheckbox.addEventListener('change', () => {
+      if (blankCheckbox.checked && filledCheckbox) filledCheckbox.checked = false;
+      syncDisabled();
+      emitChange();
+    });
+  }
+
+  if (filledCheckbox) {
+    filledCheckbox.addEventListener('change', () => {
+      if (filledCheckbox.checked && blankCheckbox) blankCheckbox.checked = false;
+      syncDisabled();
+      emitChange();
+    });
+  }
+
+  input.addEventListener('input', () => {
+    if (blankCheckbox) blankCheckbox.checked = false;
+    if (filledCheckbox) filledCheckbox.checked = false;
+    syncDisabled();
+    emitChange();
   });
 
   row.appendChild(wrap);
@@ -170,14 +220,18 @@ export const createOperatorSelect = ({ label, key, state, onChange }) => {
 export const createMatchHelpers = (item, helpers) => {
   const normalizeTextFilter = (raw) => {
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-      return { value: raw.value == null ? '' : String(raw.value), blank: Boolean(raw.blank) };
+      const value = raw.value == null ? '' : String(raw.value);
+      const blank = Boolean(raw.blank);
+      const filled = Boolean(raw.filled);
+      if (blank && filled) return { value, blank: true, filled: false };
+      return { value, blank, filled };
     }
-    return { value: raw == null ? '' : String(raw), blank: false };
+    return { value: raw == null ? '' : String(raw), blank: false, filled: false };
   };
 
   const unwrapFilterValue = (raw) => {
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-      if (raw.blank) return null;
+      if (raw.blank || raw.filled) return null;
       return raw.value;
     }
     return raw;
@@ -199,6 +253,7 @@ export const createMatchHelpers = (item, helpers) => {
   const matchText = (path, value) => {
     const filter = normalizeTextFilter(value);
     if (filter.blank) return matchBlank(path);
+    if (filter.filled) return !matchBlank(path);
     const needle = String(filter.value ?? '').trim();
     if (!needle) return true;
     return matchContains(path, needle);
@@ -209,11 +264,16 @@ export const createMatchHelpers = (item, helpers) => {
 
     const filter = normalizeTextFilter(value);
     const needle = String(filter.value ?? '').trim();
-    if (!needle && !filter.blank) return true;
+    if (!needle && !filter.blank && !filter.filled) return true;
 
     // For "blank", all candidates must be blank (keys are alternatives for the same concept).
     if (filter.blank) {
       return paths.every((path) => matchBlank(path));
+    }
+
+    // For "filled", at least one candidate must be present.
+    if (filter.filled) {
+      return paths.some((path) => !matchBlank(path));
     }
 
     return paths.some((path) => matchContains(path, needle));
@@ -237,8 +297,15 @@ export const createMatchHelpers = (item, helpers) => {
   };
 
   const matchItemToken = (value) => {
-    // If the filter is explicitly "blank", token matching would be too loose.
-    if (value && typeof value === 'object' && !Array.isArray(value) && value.blank) return false;
+    // If the filter is explicitly "blank" or "filled", token matching would be too loose.
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      (Boolean(value.blank) || Boolean(value.filled))
+    ) {
+      return false;
+    }
 
     const unwrapped = unwrapFilterValue(value);
     if (unwrapped === null || unwrapped === undefined) return true;

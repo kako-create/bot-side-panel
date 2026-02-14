@@ -1498,13 +1498,30 @@ input[type='text']::placeholder {
   gap: 8px;
 }
 
+.filter-specific-text__options {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .filter-specific-blank {
   font-size: 11px;
   font-weight: 700;
   color: var(--muted);
 }
 
+.filter-specific-filled {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
 .filter-specific-blank input {
+  accent-color: var(--color-primary);
+}
+
+.filter-specific-filled input {
   accent-color: var(--color-primary);
 }
 
