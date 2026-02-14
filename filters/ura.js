@@ -4,6 +4,7 @@ import { ivrAudioFilterConfig } from './types/ura/ivrAudio.js';
 import { ivrConditionalFilterConfig } from './types/ura/ivrConditional.js';
 import { ivrConditionalVariableFilterConfig } from './types/ura/ivrConditionalVariable.js';
 import { ivrDeriveOmniServiceFilterConfig } from './types/ura/ivrDeriveOmniService.js';
+import { ivrLogFilterConfig } from './types/ura/ivrLog.js';
 import { ivrRedirectFilterConfig } from './types/ura/ivrRedirect.js';
 import { ivrTTSCaptureAudioDTMFFilterConfig } from './types/ura/ivrTTSCaptureAudioDTMF.js';
 import { ivrTTSAudioFilterConfig } from './types/ura/ivrTTSAudio.js';
@@ -26,6 +27,9 @@ export const uraSpecificFilterConfigsByType = {
   IvrDeriveOmniService: ivrDeriveOmniServiceFilterConfig,
   'Derivar Serviço Omni': ivrDeriveOmniServiceFilterConfig,
   'Derivar Servico Omni': ivrDeriveOmniServiceFilterConfig,
+  IvrLog: ivrLogFilterConfig,
+  ivrlog: ivrLogFilterConfig,
+  Log: ivrLogFilterConfig,
   IvrRedirect: ivrRedirectFilterConfig,
   Redirecionar: ivrRedirectFilterConfig,
   Direcionador: ivrRedirectFilterConfig,

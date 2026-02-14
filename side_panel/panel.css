@@ -1493,6 +1493,26 @@ input[type='text']::placeholder {
   font-weight: 600;
 }
 
+.filter-specific-text {
+  display: grid;
+  gap: 8px;
+}
+
+.filter-specific-blank {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.filter-specific-blank input {
+  accent-color: var(--color-primary);
+}
+
+.filter-specific-text input[disabled] {
+  opacity: 0.75;
+  background: color-mix(in srgb, var(--color-surface-2) 70%, var(--color-surface));
+}
+
 .filter-specific-section-title {
   font-size: 11px;
   font-weight: 900;
