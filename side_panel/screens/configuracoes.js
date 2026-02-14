@@ -1,6 +1,6 @@
 import { sanitizeUserSettings, DEFAULT_USER_SETTINGS } from '../../config/userSettings.js';
 import { getCurrentSettings, loadSettings, updateSettings, resetSettings } from '../runtimeSettings.js';
-import { APPEARANCE_OPTIONS, THEME_PRESETS } from '../themeManager.js';
+import { APPEARANCE_OPTIONS, THEME_PRESETS } from '../themes/themeManager.js';
 
 const TEMPLATE_ID = 'tpl-screen-configuracoes';
 
@@ -312,4 +312,3 @@ export const screenConfiguracoes = {
     };
   },
 };
-

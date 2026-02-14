@@ -1,12 +1,14 @@
 import { AUTH_SESSION_TTL_MS } from '../config/limits.js';
+import { DEBUG_SAVE_NETWORK_LOGS } from '../config/flags.js';
 import { DEFAULT_MODE, MODE_BOT, MODE_URA, resolveContextFromUrl, normalizeMode } from '../config/modeResolver.js';
 import { USER_SETTINGS_KEY, DEFAULT_USER_SETTINGS, sanitizeUserSettings, mergeUserSettings } from '../config/userSettings.js';
 import { MessageType, ErrorCode, respondOk, respondErr } from '../services/messaging.js';
 import { safeGet, safeSet, safeRemove } from '../services/storage.js';
-import { listMetas, clearBotData, getMeta, saveMeta } from '../data/db.js';
+import { listMetas, clearBotData, getMeta, saveMeta, addDebugLog, listDebugLogs, clearDebugLogs, countDebugLogs } from '../data/db.js';
 import { startSync, getSyncState, cancelSync } from '../services/syncManager.js';
 import { syncBotVariables } from '../services/variablesSync.js';
 import { syncBotTags } from '../services/tagsSync.js';
+import { fetchUraAiAgentFunctions } from '../services/apiClient.js';
 
 const CONTEXT_KEY = 'bot_sp_context_v1';
 const AUTH_SESSION_KEY = 'bot_sp_auth_v1';
@@ -152,6 +154,163 @@ const normalizeCompanyPayload = (message) => {
 
 const isPlainObject = (value) => Object.prototype.toString.call(value) === '[object Object]';
 
+const clampText = (value, maxLen) => {
+  const text = String(value ?? '');
+  if (!maxLen || text.length <= maxLen) return text;
+  return `${text.slice(0, Math.max(0, maxLen - 16))}\n... (truncado)`;
+};
+
+const DEBUG_SENSITIVE_QUERY_KEYS = new Set([
+  'token',
+  'access_token',
+  'refresh_token',
+  'id_token',
+  'api_key',
+  'apikey',
+  'apiKey',
+  'key',
+  'secret',
+  'client_secret',
+  'clientSecret',
+  'password',
+  'pass',
+  'authorization',
+  'auth',
+  'jwt',
+  'session',
+]);
+
+const DEBUG_SENSITIVE_JSON_KEY_RE =
+  /^(?:authorization|apiKey|apikey|api_key|token|access_token|refresh_token|id_token|password|pass|secret|clientSecret|client_secret)$/i;
+
+const isAbsoluteUrlLike = (value) => /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(String(value ?? ''));
+
+const sanitizeUrlForDebug = (rawUrl) => {
+  const text = String(rawUrl ?? '').trim();
+  if (!text) return null;
+  try {
+    const absolute = isAbsoluteUrlLike(text);
+    const url = absolute ? new URL(text) : new URL(text, 'https://debug.invalid');
+
+    // Redact sensitive query params.
+    for (const [key, value] of url.searchParams.entries()) {
+      const k = String(key ?? '');
+      const kFold = k.toLowerCase();
+      const v = String(value ?? '');
+      if (DEBUG_SENSITIVE_QUERY_KEYS.has(kFold) || DEBUG_SENSITIVE_QUERY_KEYS.has(k)) {
+        url.searchParams.set(k, 'REDACTED');
+        continue;
+      }
+      // Extra safeguard: if a value looks like a JWT, redact it.
+      if (
+        v.length > 30 &&
+        /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(v)
+      ) {
+        url.searchParams.set(k, 'REDACTED');
+      }
+    }
+
+    return absolute ? url.toString() : `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    // Best-effort fallback: redact obvious query params without parsing.
+    return text.replace(
+      /([?&](?:token|access_token|refresh_token|id_token|apiKey|apikey|api_key|password|pass|secret|client_secret|clientSecret)=)[^&#\s]+/gi,
+      '$1REDACTED',
+    );
+  }
+};
+
+const redactDebugJsonValue = (value, depth = 0) => {
+  if (depth > 12) return '[TRUNCATED]';
+  if (Array.isArray(value)) return value.map((v) => redactDebugJsonValue(v, depth + 1));
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (DEBUG_SENSITIVE_JSON_KEY_RE.test(k)) {
+        out[k] = '[REDACTED]';
+        continue;
+      }
+      if (
+        typeof v === 'string' &&
+        v.length > 200 &&
+        /^data:image\/[^;]+;base64,/i.test(v)
+      ) {
+        out[k] = '[OMITTED]';
+        continue;
+      }
+      out[k] = redactDebugJsonValue(v, depth + 1);
+    }
+    return out;
+  }
+  if (
+    typeof value === 'string' &&
+    value.length > 30 &&
+    /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value)
+  ) {
+    return '[REDACTED]';
+  }
+  return value;
+};
+
+const redactDebugText = (rawText) => {
+  const text = String(rawText ?? '');
+  if (!text) return '';
+  try {
+    const parsed = JSON.parse(text);
+    const redacted = redactDebugJsonValue(parsed);
+    return JSON.stringify(redacted);
+  } catch {
+    return text
+      .replace(
+        /([?&](?:token|access_token|refresh_token|id_token|apiKey|apikey|api_key|password|pass|secret|client_secret|clientSecret)=)[^&#\s]+/gi,
+        '$1REDACTED',
+      )
+      .replace(
+        /(\"(?:authorization|apiKey|apikey|api_key|token|access_token|refresh_token|id_token|password|pass|secret|clientSecret|client_secret)\"\s*:\s*\")([^\"]*)(\")/gi,
+        '$1[REDACTED]$3',
+      );
+  }
+};
+
+const normalizeDebugEvent = (message) => {
+  const raw = message?.event;
+  if (!raw || typeof raw !== 'object') return null;
+  const url = sanitizeUrlForDebug(raw.url);
+  if (!url) return null;
+  const method = String(raw.method ?? '').trim().toUpperCase() || 'GET';
+  const kind = String(raw.kind ?? '').trim().toLowerCase() || 'unknown';
+  const status = raw.status == null ? null : Number(raw.status);
+  const durationMs = raw.durationMs == null ? null : Number(raw.durationMs);
+  const responseBytes = raw.responseBytes == null ? null : Number(raw.responseBytes);
+  const responseText = raw.responseText ? clampText(redactDebugText(raw.responseText), 20_000) : null;
+  const href = raw.href ? sanitizeUrlForDebug(raw.href) : null;
+
+  return {
+    createdAt: new Date().toISOString(),
+    kind,
+    method,
+    url,
+    status: Number.isFinite(status) ? status : null,
+    ok: Boolean(raw.ok),
+    durationMs: Number.isFinite(durationMs) ? durationMs : null,
+    responseBytes: Number.isFinite(responseBytes) ? responseBytes : null,
+    responseText,
+    href,
+  };
+};
+
+const sanitizeDebugLogForExport = (entry) => {
+  if (!entry || typeof entry !== 'object') return null;
+  const url = sanitizeUrlForDebug(entry.url);
+  if (!url) return null;
+  return {
+    ...entry,
+    url,
+    href: entry.href ? sanitizeUrlForDebug(entry.href) : null,
+    responseText: entry.responseText ? clampText(redactDebugText(entry.responseText), 20_000) : null,
+  };
+};
+
 const getStoredMode = (meta) => {
   const raw = String(meta?.mode ?? '').trim().toLowerCase();
   if (raw === MODE_BOT || raw === MODE_URA) return raw;
@@ -275,6 +434,95 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             respondErr(
               ErrorCode.INTERNAL,
               'Falha ao salvar dados da organização.',
+              String(error?.message ?? error),
+            ),
+          );
+        }
+      });
+      return true;
+    }
+    case MessageType.DEBUG_EVENT: {
+      initPromise.then(async () => {
+        if (!DEBUG_SAVE_NETWORK_LOGS) {
+          respond(respondOk({ ok: false, skipped: 'disabled' }));
+          return;
+        }
+        const entry = normalizeDebugEvent(message);
+        if (!entry) {
+          respond(respondOk({ ok: false, skipped: 'invalid_payload' }));
+          return;
+        }
+        try {
+          await addDebugLog(entry);
+          respond(respondOk({ ok: true }));
+        } catch (error) {
+          respond(
+            respondErr(ErrorCode.INTERNAL, 'Falha ao salvar debug.', String(error?.message ?? error)),
+          );
+        }
+      });
+      return true;
+    }
+    case MessageType.DEBUG_CLEAR: {
+      initPromise.then(async () => {
+        try {
+          await clearDebugLogs();
+          respond(respondOk({ ok: true }));
+        } catch (error) {
+          respond(respondErr(ErrorCode.INTERNAL, 'Falha ao limpar debug.', String(error?.message ?? error)));
+        }
+      });
+      return true;
+    }
+    case MessageType.DEBUG_STATS: {
+      initPromise.then(async () => {
+        try {
+          const count = await countDebugLogs();
+          respond(respondOk({ enabled: DEBUG_SAVE_NETWORK_LOGS, count }));
+        } catch (error) {
+          respond(respondErr(ErrorCode.INTERNAL, 'Falha ao ler debug.', String(error?.message ?? error)));
+        }
+      });
+      return true;
+    }
+    case MessageType.DEBUG_EXPORT: {
+      initPromise.then(async () => {
+        try {
+          const logs = await listDebugLogs({ newestFirst: false });
+          const sanitized = (logs || [])
+            .map((entry) => {
+              try {
+                return sanitizeDebugLogForExport(entry);
+              } catch {
+                return null;
+              }
+            })
+            .filter(Boolean);
+          respond(respondOk({ logs: sanitized }));
+        } catch (error) {
+          respond(respondErr(ErrorCode.INTERNAL, 'Falha ao exportar debug.', String(error?.message ?? error)));
+        }
+      });
+      return true;
+    }
+    case MessageType.LIST_URA_FUNCTIONS: {
+      initPromise.then(async () => {
+        if (!authSessionState.authorization) {
+          respond(respondErr(ErrorCode.NOT_READY, 'Token ausente.'));
+          return;
+        }
+        if (contextState.mode !== MODE_URA) {
+          respond(respondErr(ErrorCode.INVALID_REQUEST, 'Disponível apenas no mode URA.'));
+          return;
+        }
+        try {
+          const functions = await fetchUraAiAgentFunctions(authSessionState.authorization);
+          respond(respondOk({ functions: functions || [] }));
+        } catch (error) {
+          respond(
+            respondErr(
+              ErrorCode.INTERNAL,
+              'Falha ao buscar funções.',
               String(error?.message ?? error),
             ),
           );

@@ -1,8 +1,12 @@
 import { loadActiveScreenId, saveActiveScreenId } from './router.js';
 import { screens, getScreenById } from './screens/index.js';
 import { APPEARANCE_SYSTEM } from '../config/userSettings.js';
+import * as featureFlags from '../config/flags.js';
+import { callBG, MessageType } from '../services/messaging.js';
 import { getCurrentSettings, loadSettings } from './runtimeSettings.js';
-import { applyPanelTheme, watchSystemTheme } from './themeManager.js';
+import { applyPanelTheme, watchSystemTheme } from './themes/themeManager.js';
+import { setConfettiRainEnabled } from './themes/confettiRain.js';
+import { setMatrixRainEnabled } from './themes/matrixRain.js';
 
 const renderError = (root, message) => {
   if (!root) return;
@@ -21,17 +25,25 @@ const renderError = (root, message) => {
 };
 
 export const initApp = async () => {
+  const applyThemeAndEffects = (settings) => {
+    const applied = applyPanelTheme(settings);
+    const isMatrixTheme = applied?.themeId === 'matrix';
+    const isConfettiTheme = applied?.themeId === 'confete';
+    setMatrixRainEnabled(isMatrixTheme, applied);
+    setConfettiRainEnabled(isConfettiTheme, applied);
+  };
+
   await loadSettings();
-  applyPanelTheme(getCurrentSettings());
+  applyThemeAndEffects(getCurrentSettings());
 
   watchSystemTheme(() => {
     const settings = getCurrentSettings();
     if (settings.appearance === APPEARANCE_SYSTEM) {
-      applyPanelTheme(settings);
+      applyThemeAndEffects(settings);
     }
   });
   window.addEventListener('bot-sp:settings-changed', (event) => {
-    applyPanelTheme(event?.detail?.settings ?? getCurrentSettings());
+    applyThemeAndEffects(event?.detail?.settings ?? getCurrentSettings());
   });
 
   const screenSelect = document.getElementById('screen-select');
@@ -42,9 +54,31 @@ export const initApp = async () => {
   const root = document.getElementById('screen-root');
   if (!screenSelect || !screenButton || !screenLabel || !screenMenu || !appTitle || !root) return;
 
+  const normalizeModeValue = (mode) => {
+    const raw = String(mode ?? '').trim().toLowerCase();
+    if (raw === 'bot' || raw === 'ura') return raw;
+    return null;
+  };
+
+  const isScreenEnabledForMode = (screen, mode) => {
+    const requiredFlags = screen?.requiredFlags;
+    if (Array.isArray(requiredFlags) && requiredFlags.length > 0) {
+      for (const flagName of requiredFlags) {
+        if (!featureFlags?.[flagName]) return false;
+      }
+    }
+
+    const modes = screen?.modes;
+    if (!Array.isArray(modes) || modes.length === 0) return true;
+    if (!mode) return true;
+    return modes.includes(mode);
+  };
+
   let activeScreenId = null;
   /** @type {null | (() => void)} */
   let activeUnmount = null;
+  let currentMode = 'bot';
+  let visibleScreens = screens.slice();
 
   const closeMenu = () => {
     screenMenu.hidden = true;
@@ -56,9 +90,17 @@ export const initApp = async () => {
     screenButton.setAttribute('aria-expanded', 'true');
   };
 
+  const computeVisibleScreens = (mode) => {
+    const list = (screens || []).filter((screen) => isScreenEnabledForMode(screen, mode));
+    if (list.length > 0) return list;
+    // Fallback: if mode filtering yields an empty list, still respect feature flags.
+    const fallback = (screens || []).filter((screen) => isScreenEnabledForMode(screen, null));
+    return fallback.length > 0 ? fallback : screens.slice();
+  };
+
   const renderMenu = () => {
     screenMenu.innerHTML = '';
-    for (const screen of screens) {
+    for (const screen of visibleScreens) {
       const option = document.createElement('button');
       option.type = 'button';
       option.className = 'type-select__option';
@@ -86,6 +128,13 @@ export const initApp = async () => {
   const setActive = async (screenId) => {
     const screen = getScreenById(screenId);
     if (!screen) return;
+    if (!isScreenEnabledForMode(screen, currentMode)) {
+      const fallback = visibleScreens[0]?.id ?? null;
+      if (fallback && fallback !== screenId) {
+        await setActive(fallback);
+      }
+      return;
+    }
     if (screenId === activeScreenId && typeof activeUnmount === 'function') return;
 
     try {
@@ -109,6 +158,28 @@ export const initApp = async () => {
       if (typeof maybeUnmount === 'function') activeUnmount = maybeUnmount;
     } catch (error) {
       renderError(root, error?.message ?? String(error));
+    }
+  };
+
+  const refreshContextForMenu = async () => {
+    try {
+      const res = await callBG(MessageType.GET_CONTEXT);
+      const nextMode = normalizeModeValue(res?.data?.context?.mode) || null;
+      if (!nextMode) return;
+      if (nextMode === currentMode) return;
+
+      currentMode = nextMode;
+      visibleScreens = computeVisibleScreens(currentMode);
+      renderMenu();
+
+      // If current screen is no longer enabled, move to the first available.
+      const active = activeScreenId ? getScreenById(activeScreenId) : null;
+      if (active && !isScreenEnabledForMode(active, currentMode)) {
+        const fallback = visibleScreens[0]?.id ?? null;
+        if (fallback) await setActive(fallback);
+      }
+    } catch {
+      // ignore
     }
   };
 
@@ -137,8 +208,16 @@ export const initApp = async () => {
   });
 
   const saved = await loadActiveScreenId();
-  const initial = getScreenById(saved)?.id ?? screens[0]?.id ?? null;
+  await refreshContextForMenu();
+  visibleScreens = computeVisibleScreens(currentMode);
+  const savedScreen = saved ? getScreenById(saved) : null;
+  const initial =
+    (savedScreen && isScreenEnabledForMode(savedScreen, currentMode) ? savedScreen.id : null) ??
+    visibleScreens[0]?.id ??
+    null;
   activeScreenId = initial;
   renderMenu();
   if (initial) await setActive(initial);
+
+  setInterval(() => refreshContextForMenu(), 2000);
 };

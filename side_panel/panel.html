@@ -313,6 +313,25 @@
 	        </section>
 	      </template>
 
+	      <template id="tpl-screen-funcoes">
+	        <section class="card surface status-card">
+	          <div class="section-header">
+	            <h2 class="text-section-title">Funções (URA)</h2>
+	          </div>
+	          <div class="section-body">
+	            <p class="muted" id="funcoes-summary">-</p>
+	            <p class="hint">
+	              Esta tela é exclusiva do mode URA. Aqui vamos sincronizar/listar as functions quando você abrir essa área
+	              no builder.
+	            </p>
+	            <div class="actions actions-group">
+	              <button id="funcoes-refresh" class="btn btn--ghost" type="button">Atualizar</button>
+	            </div>
+	            <div id="funcoes-results" class="search-results"></div>
+	          </div>
+	        </section>
+	      </template>
+
 	      <template id="tpl-screen-comparacao">
 	        <section class="card surface">
 	          <div class="section-header">
@@ -465,11 +484,11 @@
 	        </section>
 	      </template>
 
-	      <template id="tpl-screen-configuracoes">
-	        <section class="card surface">
-	          <div class="section-header">
-	            <h2 class="text-section-title">Aparência</h2>
-	          </div>
+		      <template id="tpl-screen-configuracoes">
+		        <section class="card surface">
+		          <div class="section-header">
+		            <h2 class="text-section-title">Aparência</h2>
+		          </div>
 	          <div class="section-body settings-section">
 	            <div class="settings-mode-group" id="settings-appearance-options"></div>
 	            <div class="settings-theme-grid" id="settings-theme-grid"></div>
@@ -518,11 +537,31 @@
 	            <p class="settings-feedback settings-feedback--info" id="settings-feedback">
 	              As alterações são salvas automaticamente.
 	            </p>
-	          </div>
-	        </section>
-	      </template>
-	    </main>
+		          </div>
+		        </section>
+		      </template>
 
-	    <script type="module" src="panel.js"></script>
-	  </body>
-	</html>
+		      <template id="tpl-screen-debug">
+		        <section class="card surface">
+		          <div class="section-header">
+		            <h2 class="text-section-title">Debug</h2>
+		          </div>
+		          <div class="section-body">
+		            <p class="muted" id="debug-summary">-</p>
+		            <p class="hint">
+		              Logs podem conter dados sensíveis. A exportação redige tokens/senhas, mas evite compartilhar sem
+		              revisar.
+		            </p>
+		            <div class="actions">
+		              <button id="debug-export" class="btn btn--primary" type="button">Exportar</button>
+		              <button id="debug-clear" class="btn btn--ghost" type="button">Limpar</button>
+		            </div>
+		            <p class="settings-feedback settings-feedback--info" id="debug-feedback" hidden></p>
+		          </div>
+		        </section>
+		      </template>
+		    </main>
+
+		    <script type="module" src="panel.js"></script>
+		  </body>
+		</html>

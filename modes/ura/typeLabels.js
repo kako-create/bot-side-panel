@@ -29,7 +29,7 @@ export const TYPE_LABELS = buildTypeLabelMap({
   'IvrVariableAssignment': 'Atribuição de Variável',
   'IvrAgentIAConversationSummary': 'Resumo da Conversação',
   'IvrAgentIAReturn': 'Retorno Agente de IA',
-  'IvrAudioDTMF': 'Áudio DTMF',
+  'IvrAudioDTMF': 'Menu - Áudio',
   'IvrChatGPT': 'ChatGPT',
   'IvrCognitiveLira': 'Cognitivo Lira',
   'IvrCognitiveNama': 'Cognitivo Nama',

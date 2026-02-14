@@ -5,7 +5,7 @@ import {
   DEFAULT_THEME_ID,
   normalizeAppearance,
   normalizeThemeId,
-} from '../config/userSettings.js';
+} from '../../config/userSettings.js';
 
 const SYSTEM_DARK_QUERY = '(prefers-color-scheme: dark)';
 

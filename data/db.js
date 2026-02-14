@@ -1,7 +1,7 @@
 import { normalizeText } from '../shared/utils.js';
 
 const DB_NAME = 'bot_side_panel_db_v1';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 const STORE_META = 'meta';
 const STORE_GROUPS = 'groups';
@@ -9,6 +9,7 @@ const STORE_SUMMARY = 'summary_items';
 const STORE_FULL = 'full_items';
 const STORE_VARIABLES = 'bot_variables';
 const STORE_TAGS = 'bot_tags';
+const STORE_DEBUG = 'debug_network_logs';
 
 let dbPromise = null;
 
@@ -58,6 +59,12 @@ const openDb = () => {
           const store = db.createObjectStore(STORE_TAGS, { keyPath: ['botId', 'tagId'] });
           store.createIndex('by_bot', 'botId', { unique: false });
           store.createIndex('by_bot_label', ['botId', 'labelFold'], { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_DEBUG)) {
+          const store = db.createObjectStore(STORE_DEBUG, { keyPath: 'id', autoIncrement: true });
+          store.createIndex('by_created_at', 'createdAt', { unique: false });
+          store.createIndex('by_kind', 'kind', { unique: false });
+          store.createIndex('by_url', 'url', { unique: false });
         }
       };
       request.onsuccess = () => resolve(request.result);
@@ -245,6 +252,19 @@ export const searchFullItems = async (
   );
 };
 
+export const getFullItemById = async (botId, itemId) => {
+  const resolvedBotId = String(botId ?? '').trim();
+  const resolvedItemId = String(itemId ?? '').trim();
+  if (!resolvedBotId || !resolvedItemId) return null;
+  return withStore(STORE_FULL, 'readonly', (store) =>
+    new Promise((resolve, reject) => {
+      const req = store.get([resolvedBotId, resolvedItemId]);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error || new Error('IDB_GET_ERROR'));
+    }),
+  );
+};
+
 export const getSummaryItemsByGroup = async (botId, groupId, { type, query, limit } = {}) => {
   const typeFold = type ? normalizeText(type) : null;
   const queryFold = normalizeText(query);
@@ -349,6 +369,48 @@ export const clearBotData = async (botId) => {
   await deleteByIndex(db, STORE_TAGS, 'by_bot', botId);
   await withStore(STORE_META, 'readwrite', (store) => store.delete(botId));
 };
+
+export const addDebugLog = async (entry) =>
+  withStore(STORE_DEBUG, 'readwrite', (store) => {
+    store.add(entry);
+  });
+
+export const listDebugLogs = async ({ limit = 0, newestFirst = true } = {}) =>
+  withStore(STORE_DEBUG, 'readonly', (store) =>
+    new Promise((resolve, reject) => {
+      const results = [];
+      const direction = newestFirst ? 'prev' : 'next';
+      const req = store.openCursor(null, direction);
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) {
+          resolve(results);
+          return;
+        }
+        results.push(cursor.value);
+        if (limit && results.length >= limit) {
+          resolve(results);
+          return;
+        }
+        cursor.continue();
+      };
+      req.onerror = () => reject(req.error || new Error('IDB_CURSOR_ERROR'));
+    }),
+  );
+
+export const clearDebugLogs = async () =>
+  withStore(STORE_DEBUG, 'readwrite', (store) => {
+    store.clear();
+  });
+
+export const countDebugLogs = async () =>
+  withStore(STORE_DEBUG, 'readonly', (store) =>
+    new Promise((resolve, reject) => {
+      const req = store.count();
+      req.onsuccess = () => resolve(Number(req.result ?? 0));
+      req.onerror = () => reject(req.error || new Error('IDB_COUNT_ERROR'));
+    }),
+  );
 
 export const buildSummaryItemRecord = (item, { groupId, level } = {}) => {
   const title = item?.title ?? '';
@@ -463,4 +525,5 @@ export const STORE_NAMES = {
   FULL: STORE_FULL,
   VARIABLES: STORE_VARIABLES,
   TAGS: STORE_TAGS,
+  DEBUG: STORE_DEBUG,
 };

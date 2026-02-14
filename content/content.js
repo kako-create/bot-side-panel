@@ -2,6 +2,14 @@
   if (window.__BOT_SIDE_PANEL_CONTENT__) return;
   window.__BOT_SIDE_PANEL_CONTENT__ = true;
 
+  // Debug flag is managed in the extension background and mirrored into the page DOM
+  // so `inject.js` (running in the page context) can decide whether to emit debug events.
+  try {
+    document.documentElement.dataset.botSpDebugEnabled = "0";
+  } catch {
+    // ignore
+  }
+
   const s = document.createElement("script");
   s.src = chrome.runtime.getURL("content/inject.js");
   s.async = false;
@@ -66,7 +74,27 @@
         url: d.href || location.href,
       });
     }
+    if (d.type === "BOT_SP_DEBUG_EVENT" && d.event) {
+      safeSendMessage({ type: "BOT_SP_DEBUG_EVENT", event: d.event });
+    }
   });
+
+  // Ask background if debug is enabled and mirror the flag into the page context.
+  try {
+    chrome.runtime.sendMessage({ type: "BOT_SP_DEBUG_STATS" }, (response) => {
+      const err = chrome.runtime.lastError;
+      if (err) return;
+      const enabled = Boolean(response?.data?.enabled);
+      if (!enabled) return;
+      try {
+        document.documentElement.dataset.botSpDebugEnabled = "1";
+      } catch {
+        // ignore
+      }
+    });
+  } catch {
+    // ignore
+  }
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg?.type === "BOT_SP_PING") sendResponse({ ok: true });

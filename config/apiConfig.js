@@ -21,4 +21,5 @@ export const apiEndpoints = {
     buildApiUrl(mode === 'ura' ? `/ivr/variables/${botId}` : `/bots/variable/${botId}`),
   botTags: (botId, mode = 'bot') =>
     buildApiUrl(mode === 'ura' ? `/ivr/${botId}/tag` : `/bots/tag/${botId}`),
+  uraAiAgentFunctions: () => buildApiUrl(`/ivr/ai-agent/functions`),
 };

@@ -1,7 +1,9 @@
 import { callBG, MessageType } from '../../services/messaging.js';
-import { searchFullItems } from '../../data/db.js';
+import { getFullItemById, searchFullItems } from '../../data/db.js';
 import { normalizeText } from '../../shared/utils.js';
 import { buildBlockLink } from '../links.js';
+import { createBlockGridPreviewCard } from '../components/blockComparePreview.js';
+import { createPropsDiffPanel } from '../components/propsDiffPanel.js';
 
 const TEMPLATE_ID = 'tpl-screen-comparacao';
 const MODE_BOT = 'bot';
@@ -877,18 +879,73 @@ const createChangedLine = (row, index, cmp) => {
   idLine.textContent = `A: ${row.leftItemId || '-'} | B: ${row.rightItemId || '-'}`;
   details.appendChild(idLine);
 
+  const layout = document.createElement('div');
+  layout.className = 'block-diff-layout';
+  details.appendChild(layout);
+
+  const blockWrap = document.createElement('div');
+  blockWrap.className = 'block-diff-layout__block';
+  layout.appendChild(blockWrap);
+
+  const propsWrap = document.createElement('div');
+  propsWrap.className = 'block-diff-layout__props';
+  layout.appendChild(propsWrap);
+
+  // Only changed properties, with A/B values.
   const diffs = Array.isArray(row.mergeDiff) ? row.mergeDiff : [];
-  if (!diffs.length) {
-    const empty = document.createElement('div');
-    empty.className = 'muted';
-    empty.textContent = 'Sem detalhes de merge para exibir.';
-    details.appendChild(empty);
-  } else {
-    const list = document.createElement('div');
-    list.className = 'compare-diff-list';
-    diffs.forEach((diff) => list.appendChild(createMergeDiffRow(diff)));
-    details.appendChild(list);
-  }
+  propsWrap.appendChild(
+    createPropsDiffPanel({
+      diffs,
+      mode: cmp?.mode,
+      leftLabel: 'A',
+      rightLabel: 'B',
+    }),
+  );
+
+  let visualLoaded = false;
+  let visualLoading = false;
+
+  const renderVisualStatus = (text) => {
+    blockWrap.innerHTML = '';
+    const line = document.createElement('div');
+    line.className = 'muted';
+    line.textContent = text || '';
+    blockWrap.appendChild(line);
+  };
+
+  const ensureVisualLoaded = async () => {
+    if (visualLoaded || visualLoading) return;
+
+    const leftBotId = String(cmp?.left?.botId ?? '').trim();
+    const leftItemId = String(row.leftItemId ?? '').trim();
+    if (!leftBotId || !leftItemId) {
+      renderVisualStatus('Pré-visualização indisponível para esse bloco.');
+      visualLoaded = true;
+      return;
+    }
+
+    visualLoading = true;
+    renderVisualStatus('Carregando pré-visualização do bloco A...');
+
+    try {
+      const leftItem = await getFullItemById(leftBotId, leftItemId);
+      blockWrap.innerHTML = '';
+      blockWrap.appendChild(
+        createBlockGridPreviewCard({
+          item: leftItem,
+          label: 'A',
+          mode: cmp?.mode,
+          changedKeys: row.keys,
+        }),
+      );
+      visualLoaded = true;
+    } catch {
+      renderVisualStatus('Falha ao carregar a pré-visualização do bloco A.');
+      visualLoaded = true;
+    } finally {
+      visualLoading = false;
+    }
+  };
 
   const toggleOpen = () => {
     const isOpen = !details.hasAttribute('hidden');
@@ -901,6 +958,7 @@ const createChangedLine = (row, index, cmp) => {
     details.removeAttribute('hidden');
     state.openChangedRows[rowKey] = true;
     toggle.textContent = 'Ocultar merge';
+    ensureVisualLoaded();
   };
 
   head.addEventListener('click', () => toggleOpen());
@@ -908,6 +966,10 @@ const createChangedLine = (row, index, cmp) => {
     event.stopPropagation();
     toggleOpen();
   });
+
+  if (open) {
+    ensureVisualLoaded();
+  }
 
   wrapper.appendChild(head);
   wrapper.appendChild(details);

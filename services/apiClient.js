@@ -187,3 +187,41 @@ export const fetchBotTags = async (botId, authorization, mode = 'bot', signal) =
   }
   return normalizeList(payload, ['tags', 'items', 'docs']);
 };
+
+export const fetchUraAiAgentFunctions = async (authorization, signal) => {
+  if (!authorization || !authorization.toLowerCase().startsWith('bearer ')) {
+    throw new Error('Token de autorização inválido ou ausente.');
+  }
+  const response = await fetchWithRetry(apiEndpoints.uraAiAgentFunctions(), {
+    headers: { Authorization: authorization },
+    signal,
+  });
+  const payload = await parseJson(response);
+
+  // Expected: array OR { functions: [...] } OR { docs: [...] } etc.
+  let list = normalizeList(payload, ['functions', 'docs', 'items']);
+
+  // Fallback: { functions: { name: {...} } }
+  if (list.length === 0) {
+    const obj = payload?.functions;
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+      list = Object.entries(obj).map(([name, value]) => {
+        if (value && typeof value === 'object') return { name, ...value };
+        return { name, value };
+      });
+    }
+  }
+
+  // Fallback: payload is a map.
+  if (list.length === 0 && payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    const entries = Object.entries(payload);
+    if (entries.length > 0 && entries.length <= 200) {
+      list = entries.map(([name, value]) => {
+        if (value && typeof value === 'object') return { name, ...value };
+        return { name, value };
+      });
+    }
+  }
+
+  return list;
+};
