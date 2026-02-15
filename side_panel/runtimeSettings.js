@@ -1,12 +1,13 @@
 import { callBG, MessageType } from '../services/messaging.js';
 import { DEFAULT_USER_SETTINGS, sanitizeUserSettings } from '../config/userSettings.js';
+import { PANEL_EVENTS } from './panelEvents.js';
 
 let currentSettings = sanitizeUserSettings(DEFAULT_USER_SETTINGS);
 
 const dispatchSettingsChanged = (source = 'runtime') => {
   try {
     window.dispatchEvent(
-      new CustomEvent('bot-sp:settings-changed', {
+      new CustomEvent(PANEL_EVENTS.SETTINGS_CHANGED, {
         detail: {
           source,
           settings: { ...currentSettings },
@@ -52,4 +53,3 @@ export const resetSettings = async () => {
   }
   return response;
 };
-

@@ -25,6 +25,7 @@ export const MessageType = Object.freeze({
 export const ErrorCode = Object.freeze({
   INVALID_REQUEST: 'INVALID_REQUEST',
   NOT_READY: 'NOT_READY',
+  NOT_FOUND: 'NOT_FOUND',
   STORAGE_ERROR: 'STORAGE_ERROR',
   QUOTA: 'QUOTA',
   UNAUTHORIZED: 'UNAUTHORIZED',

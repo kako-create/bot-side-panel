@@ -24,6 +24,7 @@ let lastFrameAt = 0;
 let appearanceMode = 'dark';
 let visibilityListenerBound = false;
 let resizeListenerBound = false;
+let visibilityHandler = null;
 
 const randomInt = (max) => Math.floor(Math.random() * Math.max(1, max));
 const randomFloat = (min, span) => min + Math.random() * span;
@@ -142,10 +143,11 @@ const bindListeners = () => {
     resizeListenerBound = true;
   }
   if (!visibilityListenerBound) {
-    document.addEventListener('visibilitychange', () => {
+    visibilityHandler = () => {
       if (!enabled) return;
       if (!document.hidden) lastFrameAt = 0;
-    });
+    };
+    document.addEventListener('visibilitychange', visibilityHandler);
     visibilityListenerBound = true;
   }
 };
@@ -155,6 +157,11 @@ const unbindListeners = () => {
     window.removeEventListener('resize', resize);
     resizeListenerBound = false;
   }
+  if (visibilityListenerBound && visibilityHandler) {
+    document.removeEventListener('visibilitychange', visibilityHandler);
+  }
+  visibilityListenerBound = false;
+  visibilityHandler = null;
 };
 
 const start = () => {
@@ -183,9 +190,22 @@ const stop = () => {
   columns = [];
 };
 
-export const setMatrixRainEnabled = (nextEnabled, options = {}) => {
-  const mode = String(options?.effectiveMode ?? '').trim().toLowerCase();
+const setEffectiveMode = (effectiveMode) => {
+  const mode = String(effectiveMode ?? '').trim().toLowerCase();
   appearanceMode = mode === 'light' ? 'light' : 'dark';
-  if (nextEnabled) start();
-  else stop();
 };
+
+const matrixEffect = {
+  id: 'matrix',
+  enable: ({ effectiveMode } = {}) => {
+    setEffectiveMode(effectiveMode);
+    start();
+  },
+  disable: ({ effectiveMode } = {}) => {
+    setEffectiveMode(effectiveMode);
+    stop();
+  },
+};
+
+export default matrixEffect;
+

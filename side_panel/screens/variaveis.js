@@ -2,6 +2,7 @@ import { callBG, MessageType } from '../../services/messaging.js';
 import { getMeta, listBotVariables } from '../../data/db.js';
 import { saveActiveScreenId } from '../router.js';
 import { saveConsultaIntent } from '../consultaIntent.js';
+import { PANEL_EVENTS } from '../panelEvents.js';
 
 const TEMPLATE_ID = 'tpl-screen-variaveis';
 const MODE_BOT = 'bot';
@@ -168,7 +169,7 @@ const buildVariableRow = (rec) => {
       });
       await saveActiveScreenId('consulta');
       window.dispatchEvent(
-        new CustomEvent('bot-sp:navigate', {
+        new CustomEvent(PANEL_EVENTS.NAVIGATE, {
           detail: { screenId: 'consulta' },
         }),
       );

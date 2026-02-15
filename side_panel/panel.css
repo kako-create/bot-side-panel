@@ -580,9 +580,10 @@ input[type='text']::placeholder {
 .funcoes-json {
   margin: 0;
   padding: 8px 10px;
-  border: 1px dashed var(--border);
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
   border-radius: var(--radius-sm);
   background: var(--color-surface-2);
+  color: var(--ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
     monospace;
   font-size: 11px;

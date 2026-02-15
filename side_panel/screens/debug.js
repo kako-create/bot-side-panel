@@ -174,7 +174,7 @@ const init = async () => {
 export const screenDebug = {
   id: 'debug',
   title: 'Debug',
-  // Only show when debug logging is enabled via feature flag.
+  // Exibir apenas quando o debug estiver habilitado via feature flag.
   requiredFlags: ['DEBUG_SAVE_NETWORK_LOGS'],
   mount: async ({ root }) => {
     disposed = false;

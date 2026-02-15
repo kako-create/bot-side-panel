@@ -1,6 +1,7 @@
 import { sanitizeUserSettings, DEFAULT_USER_SETTINGS } from '../../config/userSettings.js';
 import { getCurrentSettings, loadSettings, updateSettings, resetSettings } from '../runtimeSettings.js';
-import { APPEARANCE_OPTIONS, THEME_PRESETS } from '../themes/themeManager.js';
+import { APPEARANCE_OPTIONS, THEME_PRESETS } from '../theme/themeManager.js';
+import { PANEL_EVENTS } from '../panelEvents.js';
 
 const TEMPLATE_ID = 'tpl-screen-configuracoes';
 
@@ -249,7 +250,7 @@ const bindEvents = () => {
     state.settings = sanitizeUserSettings(next);
     render();
   };
-  on(window, 'bot-sp:settings-changed', settingsChanged);
+  on(window, PANEL_EVENTS.SETTINGS_CHANGED, settingsChanged);
 };
 
 const init = async () => {

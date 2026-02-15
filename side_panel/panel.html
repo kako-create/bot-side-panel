@@ -316,17 +316,64 @@
 	      <template id="tpl-screen-funcoes">
 	        <section class="card surface status-card">
 	          <div class="section-header">
+	            <span class="semaforo" id="funcoes-light"></span>
 	            <h2 class="text-section-title">Funções (URA)</h2>
-	          </div>
-	          <div class="section-body">
-	            <p class="muted" id="funcoes-summary">-</p>
-	            <p class="hint">
-	              Esta tela é exclusiva do mode URA. Aqui vamos sincronizar/listar as functions quando você abrir essa área
-	              no builder.
-	            </p>
-	            <div class="actions actions-group">
-	              <button id="funcoes-refresh" class="btn btn--ghost" type="button">Atualizar</button>
+	            <div class="section-actions">
+	              <button class="btn btn--ghost btn--sm section-toggle" data-target="funcoes-status-content" type="button">
+	                Recolher
+	              </button>
 	            </div>
+	          </div>
+	          <div id="funcoes-status-content" class="section-body">
+	            <div class="status-grid">
+	              <div class="status-row">
+	                <span class="label">Bot</span>
+	                <strong id="funcoes-bot">-</strong>
+	              </div>
+	            </div>
+
+	            <div class="status-metrics status-metrics--tight">
+	              <div class="metric">
+	                <span>Token</span>
+	                <strong id="funcoes-auth">-</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Status</span>
+	                <strong id="funcoes-status">-</strong>
+	              </div>
+	            </div>
+
+	            <div class="status-metrics">
+	              <div class="metric">
+	                <span>Total</span>
+	                <strong id="funcoes-total">0</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Última sync</span>
+	                <strong id="funcoes-last-sync">-</strong>
+	              </div>
+	            </div>
+
+	            <p class="hint">
+	              Esta tela é exclusiva do mode URA. As functions só aparecem quando você abrir essa área no builder.
+	            </p>
+
+	            <div class="actions actions-group">
+	              <button id="funcoes-refresh" class="btn btn--primary" type="button">Atualizar</button>
+	            </div>
+	          </div>
+	        </section>
+
+	        <section class="card surface" id="funcoes-results-section">
+	          <div class="section-header">
+	            <h2 class="text-section-title">Funções</h2>
+	            <div class="section-actions">
+	              <button class="btn btn--ghost btn--sm section-toggle" data-target="funcoes-results-content" type="button">
+	                Recolher
+	              </button>
+	            </div>
+	          </div>
+	          <div id="funcoes-results-content" class="section-body">
 	            <div id="funcoes-results" class="search-results"></div>
 	          </div>
 	        </section>
@@ -354,8 +401,8 @@
 	            </div>
 	            <p class="muted" id="cmp-validation">Selecione dois registros para comparar.</p>
 	            <div class="actions actions-group">
-	              <button id="cmp-refresh" class="btn btn--ghost" type="button">Atualizar lista</button>
-	              <button id="cmp-run" class="btn btn--primary" type="button" disabled>Comparar registros</button>
+	              <button id="cmp-refresh" class="btn btn--primary" type="button">Atualizar lista</button>
+	              <button id="cmp-run" class="btn btn--secondary actions-end" type="button" disabled>Comparar registros</button>
 	            </div>
 	          </div>
 	        </section>

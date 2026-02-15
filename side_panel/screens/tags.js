@@ -2,6 +2,7 @@ import { callBG, MessageType } from '../../services/messaging.js';
 import { getMeta, listBotTags, searchFullItems } from '../../data/db.js';
 import { saveActiveScreenId } from '../router.js';
 import { saveConsultaIntent } from '../consultaIntent.js';
+import { PANEL_EVENTS } from '../panelEvents.js';
 import { normalizeText } from '../../shared/utils.js';
 
 const TEMPLATE_ID = 'tpl-screen-tags';
@@ -263,7 +264,7 @@ const buildTagRow = (item) => {
       });
       await saveActiveScreenId('consulta');
       window.dispatchEvent(
-        new CustomEvent('bot-sp:navigate', {
+        new CustomEvent(PANEL_EVENTS.NAVIGATE, {
           detail: { screenId: 'consulta' },
         }),
       );

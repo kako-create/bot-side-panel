@@ -17,6 +17,7 @@ let lastFrameAt = 0;
 let appearanceMode = 'dark';
 let visibilityListenerBound = false;
 let resizeListenerBound = false;
+let visibilityHandler = null;
 
 let wind = 0;
 let windTarget = 0;
@@ -62,7 +63,7 @@ const readCssVar = (name) => {
 };
 
 const resolvePalette = () => {
-  // Fall back to the Confete preset colors if CSS vars are missing.
+  // Usa as cores do preset Confete como fallback se as CSS vars estiverem ausentes.
   const primary = parseHexColor(readCssVar('--color-primary')) || { r: 77, g: 122, b: 255 };
   const accent = parseHexColor(readCssVar('--color-accent')) || { r: 255, g: 111, b: 165 };
   const highlight = parseHexColor(readCssVar('--color-highlight')) || { r: 255, g: 213, b: 74 };
@@ -152,7 +153,7 @@ const resize = () => {
     pieces = pieces.slice(0, targetCount);
   }
 
-  // Keep particles within bounds after a resize.
+  // Mantem as particulas dentro dos limites apos um resize.
   for (const piece of pieces) {
     if (!piece) continue;
     if (piece.x > width + 140 || piece.x < -140) piece.x = randomFloat(-width * 0.1, width * 1.2);
@@ -203,7 +204,7 @@ const drawFrame = (t) => {
   if (!enabled || !ctx) return;
   ctx.clearRect(0, 0, width, height);
 
-  // Slightly reduce opacity in light mode to keep readability.
+  // Reduz levemente a opacidade no modo claro para manter a legibilidade.
   const globalBoost = appearanceMode === 'light' ? 0.85 : 1;
 
   for (const piece of pieces) {
@@ -227,7 +228,7 @@ const drawFrame = (t) => {
       ctx.arc(0, 0, r, 0, Math.PI * 2);
       ctx.fill();
     } else if (piece.shape === 'ribbon') {
-      // Simple ribbon polygon for extra motion.
+      // Poligono simples de fita para dar mais movimento.
       const w = piece.w * 1.25;
       const h = piece.h * 0.9;
       ctx.beginPath();
@@ -270,10 +271,11 @@ const bindListeners = () => {
     resizeListenerBound = true;
   }
   if (!visibilityListenerBound) {
-    document.addEventListener('visibilitychange', () => {
+    visibilityHandler = () => {
       if (!enabled) return;
       if (!document.hidden) lastFrameAt = 0;
-    });
+    };
+    document.addEventListener('visibilitychange', visibilityHandler);
     visibilityListenerBound = true;
   }
 };
@@ -283,6 +285,11 @@ const unbindListeners = () => {
     window.removeEventListener('resize', resize);
     resizeListenerBound = false;
   }
+  if (visibilityListenerBound && visibilityHandler) {
+    document.removeEventListener('visibilitychange', visibilityHandler);
+  }
+  visibilityListenerBound = false;
+  visibilityHandler = null;
 };
 
 const start = () => {
@@ -313,10 +320,21 @@ const stop = () => {
   pieces = [];
 };
 
-export const setConfettiRainEnabled = (nextEnabled, options = {}) => {
-  const mode = String(options?.effectiveMode ?? '').trim().toLowerCase();
+const setEffectiveMode = (effectiveMode) => {
+  const mode = String(effectiveMode ?? '').trim().toLowerCase();
   appearanceMode = mode === 'light' ? 'light' : 'dark';
-  if (nextEnabled) start();
-  else stop();
 };
 
+const confettiEffect = {
+  id: 'confetti',
+  enable: ({ effectiveMode } = {}) => {
+    setEffectiveMode(effectiveMode);
+    start();
+  },
+  disable: ({ effectiveMode } = {}) => {
+    setEffectiveMode(effectiveMode);
+    stop();
+  },
+};
+
+export default confettiEffect;

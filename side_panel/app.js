@@ -4,9 +4,9 @@ import { APPEARANCE_SYSTEM } from '../config/userSettings.js';
 import * as featureFlags from '../config/flags.js';
 import { callBG, MessageType } from '../services/messaging.js';
 import { getCurrentSettings, loadSettings } from './runtimeSettings.js';
-import { applyPanelTheme, watchSystemTheme } from './themes/themeManager.js';
-import { setConfettiRainEnabled } from './themes/confettiRain.js';
-import { setMatrixRainEnabled } from './themes/matrixRain.js';
+import { effectManager } from './theme/effects/effectManager.js';
+import { applyPanelTheme, getThemePreset, watchSystemTheme } from './theme/themeManager.js';
+import { PANEL_EVENTS } from './panelEvents.js';
 
 const renderError = (root, message) => {
   if (!root) return;
@@ -27,10 +27,10 @@ const renderError = (root, message) => {
 export const initApp = async () => {
   const applyThemeAndEffects = (settings) => {
     const applied = applyPanelTheme(settings);
-    const isMatrixTheme = applied?.themeId === 'matrix';
-    const isConfettiTheme = applied?.themeId === 'confete';
-    setMatrixRainEnabled(isMatrixTheme, applied);
-    setConfettiRainEnabled(isConfettiTheme, applied);
+    if (!applied) return;
+    const preset = getThemePreset(applied.themeId);
+    const effects = preset?.effects ?? [];
+    effectManager.apply(effects, { effectiveMode: applied.effectiveMode });
   };
 
   await loadSettings();
@@ -42,7 +42,7 @@ export const initApp = async () => {
       applyThemeAndEffects(settings);
     }
   });
-  window.addEventListener('bot-sp:settings-changed', (event) => {
+  window.addEventListener(PANEL_EVENTS.SETTINGS_CHANGED, (event) => {
     applyThemeAndEffects(event?.detail?.settings ?? getCurrentSettings());
   });
 
@@ -189,7 +189,7 @@ export const initApp = async () => {
     closeMenu();
     setActive(nextScreenId);
   };
-  window.addEventListener('bot-sp:navigate', onNavigate);
+  window.addEventListener(PANEL_EVENTS.NAVIGATE, onNavigate);
 
   screenButton.setAttribute('aria-expanded', 'false');
   screenButton.addEventListener('click', (event) => {
