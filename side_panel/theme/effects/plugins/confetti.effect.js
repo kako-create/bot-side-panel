@@ -4,7 +4,7 @@ const FRAME_MS = 1000 / SYSTEM_FPS;
 
 const MIN_PIECES = 32;
 const MAX_PIECES = 140;
-const PIECE_DENSITY = 9000; // lower = more confetti
+const PIECE_DENSITY = 9000; // menor = mais confete
 
 let enabled = false;
 let canvas = null;
@@ -63,7 +63,7 @@ const readCssVar = (name) => {
 };
 
 const resolvePalette = () => {
-  // Usa as cores do preset Confete como fallback se as CSS vars estiverem ausentes.
+  // Usa as cores do preset Confete como alternativa se as CSS vars estiverem ausentes.
   const primary = parseHexColor(readCssVar('--color-primary')) || { r: 77, g: 122, b: 255 };
   const accent = parseHexColor(readCssVar('--color-accent')) || { r: 255, g: 111, b: 165 };
   const highlight = parseHexColor(readCssVar('--color-highlight')) || { r: 255, g: 213, b: 74 };

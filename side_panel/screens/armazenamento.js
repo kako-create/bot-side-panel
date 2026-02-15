@@ -376,7 +376,7 @@ export const screenArmazenamento = {
         try {
           fn();
         } catch {
-          // ignore
+          // ignorar
         }
       });
       if (rootEl) rootEl.innerHTML = '';

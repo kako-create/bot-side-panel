@@ -2,12 +2,12 @@
   if (window.__BOT_SIDE_PANEL_CONTENT__) return;
   window.__BOT_SIDE_PANEL_CONTENT__ = true;
 
-  // Debug flag is managed in the extension background and mirrored into the page DOM
-  // so `inject.js` (running in the page context) can decide whether to emit debug events.
+  // A flag de debug e gerenciada no background da extensao e espelhada no DOM da pagina
+  // para que o `inject.js` (rodando no contexto da pagina) decida se deve emitir eventos de debug.
   try {
     document.documentElement.dataset.botSpDebugEnabled = "0";
   } catch {
-    // ignore
+    // ignorar
   }
 
   const s = document.createElement("script");
@@ -24,7 +24,7 @@
         if (err && /context invalidated/i.test(err.message)) return;
       });
     } catch {
-      // ignore
+      // ignorar
     }
   }
 
@@ -79,7 +79,7 @@
     }
   });
 
-  // Ask background if debug is enabled and mirror the flag into the page context.
+  // Pergunta ao background se o debug esta habilitado e espelha a flag no contexto da pagina.
   try {
     chrome.runtime.sendMessage({ type: "BOT_SP_DEBUG_STATS" }, (response) => {
       const err = chrome.runtime.lastError;
@@ -89,11 +89,11 @@
       try {
         document.documentElement.dataset.botSpDebugEnabled = "1";
       } catch {
-        // ignore
+        // ignorar
       }
     });
   } catch {
-    // ignore
+    // ignorar
   }
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

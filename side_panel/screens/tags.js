@@ -188,7 +188,7 @@ const getSyncGapLabel = (meta) => {
 };
 
 const buildGroups = (records) => {
-  const groups = new Map(); // key -> { key, min, max, width, items: [] }
+  const groups = new Map(); // chave -> { key, min, max, width, items: [] }
   const others = [];
 
   records.forEach((rec) => {
@@ -636,7 +636,7 @@ export const screenTags = {
         try {
           fn();
         } catch {
-          // ignore
+          // ignorar
         }
       });
       if (rootEl) rootEl.innerHTML = '';

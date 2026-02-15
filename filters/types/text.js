@@ -1,2 +1,2 @@
-// Backward-compatible re-export. Use `filters/types/bot/text.js` for new code.
+// Reexportacao retrocompativel. Use `filters/types/bot/text.js` para novo codigo.
 export { textFilterConfig } from './bot/text.js';

@@ -1,2 +1,2 @@
-// Backward-compatible re-export. Use `filters/types/bot/redirect.js` for new code.
+// Reexportacao retrocompativel. Use `filters/types/bot/redirect.js` para novo codigo.
 export { redirectFilterConfig } from './bot/redirect.js';

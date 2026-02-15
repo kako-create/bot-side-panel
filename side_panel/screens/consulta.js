@@ -695,7 +695,7 @@ const persistPanelState = debounce(() => {
   try {
     chrome.storage.local.set({ [PANEL_STATE_KEY]: payload });
   } catch {
-    // ignore
+    // ignorar
   }
 }, 200);
 
@@ -754,7 +754,7 @@ const loadPanelState = async () => {
       if (els.advancedDeep) els.advancedDeep.checked = Boolean(state.advanced.deep);
     }
   } catch {
-    // ignore
+    // ignorar
   }
 };
 
@@ -997,10 +997,10 @@ const setHidden = (el, hidden) => {
 };
 
 const updateSearchSectionsVisibility = ({ summaryReady, fullReady }) => {
-  // Only one search section should be visible:
-  // - none until summary sync
-  // - quick after summary sync
-  // - advanced after full sync
+  // Apenas uma secao de busca deve ficar visivel:
+  // - nenhuma ate o sync de resumo
+  // - rapida apos o sync de resumo
+  // - avancada apos o sync completo
   if (fullReady) {
     setHidden(els.quickSection, true);
     setHidden(els.advancedSection, false);
@@ -1330,7 +1330,7 @@ export const screenConsulta = {
         try {
           fn();
         } catch {
-          // ignore
+          // ignorar
         }
       });
       if (rootEl) rootEl.innerHTML = '';

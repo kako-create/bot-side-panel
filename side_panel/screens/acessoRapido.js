@@ -353,7 +353,7 @@ export const screenAcessoRapido = {
         try {
           fn();
         } catch {
-          // ignore
+          // ignorar
         }
       });
       if (rootEl) rootEl.innerHTML = '';

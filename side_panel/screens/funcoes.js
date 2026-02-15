@@ -347,7 +347,7 @@ export const screenFuncoes = {
         try {
           fn();
         } catch {
-          // ignore
+          // ignorar
         }
       });
       if (rootEl) rootEl.innerHTML = '';

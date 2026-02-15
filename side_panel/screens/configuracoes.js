@@ -303,7 +303,7 @@ export const screenConfiguracoes = {
         try {
           fn();
         } catch {
-          // ignore
+          // ignorar
         }
       });
       if (rootEl) rootEl.innerHTML = '';

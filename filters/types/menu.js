@@ -1,2 +1,2 @@
-// Backward-compatible re-export. Use `filters/types/bot/menu.js` for new code.
+// Reexportacao retrocompativel. Use `filters/types/bot/menu.js` para novo codigo.
 export { menuFilterConfig } from './bot/menu.js';

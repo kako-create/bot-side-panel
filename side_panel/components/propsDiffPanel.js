@@ -21,7 +21,7 @@ const titleize = (value) => {
 const extractRoot = (path) => {
   const raw = String(path ?? '').trim();
   if (!raw || raw === '(raiz)') return { root: '(raiz)', rest: '' };
-  // root ends at first "." or "[".
+  // A raiz termina no primeiro "." ou "[".
   const dot = raw.indexOf('.');
   const bracket = raw.indexOf('[');
   const idx = dot === -1 ? bracket : bracket === -1 ? dot : Math.min(dot, bracket);
@@ -33,7 +33,7 @@ const prettifyRest = (rest) => {
   const raw = String(rest ?? '').trim();
   if (!raw) return '';
   const withoutLeadingDot = raw.startsWith('.') ? raw.slice(1) : raw;
-  // Replace "[0]" to "1" for friendlier display.
+  // Troca "[0]" por "1" para uma exibicao mais amigavel.
   const normalized = withoutLeadingDot.replace(/\[(\d+)\]/g, (_, idx) => ` ${Number(idx) + 1} `);
   return normalized.replace(/\s+/g, ' ').trim();
 };
@@ -100,7 +100,7 @@ const groupDiffs = (diffs) => {
     if (!map.has(key)) map.set(key, []);
     map.get(key).push({ ...diff, __root: root, __rest: rest });
   }
-  // Stable order: by root label-ish, then by path.
+  // Ordem estavel: por rotulo da raiz e depois pelo path.
   const keys = Array.from(map.keys()).sort((a, b) => a.localeCompare(b, 'pt-BR'));
   return keys.map((key) => {
     const entries = map.get(key) || [];
@@ -161,4 +161,3 @@ export const createPropsDiffPanel = ({ diffs, mode, leftLabel = 'A', rightLabel 
   wrapper.appendChild(body);
   return wrapper;
 };
-

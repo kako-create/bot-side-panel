@@ -93,7 +93,7 @@ export const initApp = async () => {
   const computeVisibleScreens = (mode) => {
     const list = (screens || []).filter((screen) => isScreenEnabledForMode(screen, mode));
     if (list.length > 0) return list;
-    // Fallback: if mode filtering yields an empty list, still respect feature flags.
+    // Alternativa: se o filtro por modo resultar em lista vazia, ainda respeita flags de feature.
     const fallback = (screens || []).filter((screen) => isScreenEnabledForMode(screen, null));
     return fallback.length > 0 ? fallback : screens.slice();
   };
@@ -142,7 +142,7 @@ export const initApp = async () => {
         try {
           activeUnmount();
         } catch {
-          // ignore
+          // ignorar
         }
       }
       activeUnmount = null;
@@ -172,14 +172,14 @@ export const initApp = async () => {
       visibleScreens = computeVisibleScreens(currentMode);
       renderMenu();
 
-      // If current screen is no longer enabled, move to the first available.
+      // Se a tela atual nao estiver mais habilitada, muda para a primeira disponivel.
       const active = activeScreenId ? getScreenById(activeScreenId) : null;
       if (active && !isScreenEnabledForMode(active, currentMode)) {
         const fallback = visibleScreens[0]?.id ?? null;
         if (fallback) await setActive(fallback);
       }
     } catch {
-      // ignore
+      // ignorar
     }
   };
 

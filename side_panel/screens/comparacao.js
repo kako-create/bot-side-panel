@@ -779,7 +779,7 @@ const createOpenBlockButton = ({ label, record, mode, itemId, groupId }) => {
         state.appBaseUrl = appBaseUrl;
       }
     } catch {
-      // ignore and use last known base URL
+      // ignorar e usar a ultima base URL conhecida
     }
     const url = buildBlockLink({
       botId,
@@ -891,7 +891,7 @@ const createChangedLine = (row, index, cmp) => {
   propsWrap.className = 'block-diff-layout__props';
   layout.appendChild(propsWrap);
 
-  // Only changed properties, with A/B values.
+  // Apenas propriedades alteradas, com valores A/B.
   const diffs = Array.isArray(row.mergeDiff) ? row.mergeDiff : [];
   propsWrap.appendChild(
     createPropsDiffPanel({
@@ -1051,7 +1051,7 @@ const loadContext = async () => {
     if (!response.ok) return;
     state.appBaseUrl = response.data?.context?.appBaseUrl ?? null;
   } catch {
-    // ignore
+    // ignorar
   }
 };
 
@@ -1215,7 +1215,7 @@ export const screenComparacao = {
         try {
           fn();
         } catch {
-          // ignore
+          // ignorar
         }
       });
       if (rootEl) rootEl.innerHTML = '';

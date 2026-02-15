@@ -192,7 +192,7 @@ const sanitizeUrlForDebug = (rawUrl) => {
     const absolute = isAbsoluteUrlLike(text);
     const url = absolute ? new URL(text) : new URL(text, 'https://debug.invalid');
 
-    // Redact sensitive query params.
+    // Mascarar parametros sensiveis da query.
     for (const [key, value] of url.searchParams.entries()) {
       const k = String(key ?? '');
       const kFold = k.toLowerCase();
@@ -201,7 +201,7 @@ const sanitizeUrlForDebug = (rawUrl) => {
         url.searchParams.set(k, 'REDACTED');
         continue;
       }
-      // Extra safeguard: if a value looks like a JWT, redact it.
+      // Protecao extra: se um valor parecer um JWT, mascarar.
       if (
         v.length > 30 &&
         /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(v)
@@ -212,7 +212,7 @@ const sanitizeUrlForDebug = (rawUrl) => {
 
     return absolute ? url.toString() : `${url.pathname}${url.search}${url.hash}`;
   } catch {
-    // Best-effort fallback: redact obvious query params without parsing.
+    // Alternativa de melhor esforco: mascarar params obvios sem fazer parse.
     return text.replace(
       /([?&](?:token|access_token|refresh_token|id_token|apiKey|apikey|api_key|password|pass|secret|client_secret|clientSecret)=)[^&#\s]+/gi,
       '$1REDACTED',
@@ -332,11 +332,11 @@ const broadcastStatus = (state) => {
     chrome.runtime.sendMessage({ type: MessageType.SYNC_STATUS, state }, () => {
       const err = chrome.runtime.lastError;
       if (err && !/receiving end does not exist/i.test(err.message)) {
-        // ignore known no-receiver errors
+        // ignorar erros conhecidos de "no receiver"
       }
     });
   } catch {
-    // ignore
+    // ignorar
   }
 };
 
@@ -354,7 +354,7 @@ const triggerAutoSync = async () => {
       onProgress: broadcastStatus,
     });
   } catch {
-    // sync error already reported via status
+    // erro de sync ja reportado via status
   }
 };
 

@@ -266,12 +266,12 @@ export const createMatchHelpers = (item, helpers) => {
     const needle = String(filter.value ?? '').trim();
     if (!needle && !filter.blank && !filter.filled) return true;
 
-    // For "blank", all candidates must be blank (keys are alternatives for the same concept).
+    // Para "em branco", todos os candidatos devem estar em branco (chaves sao alternativas do mesmo conceito).
     if (filter.blank) {
       return paths.every((path) => matchBlank(path));
     }
 
-    // For "filled", at least one candidate must be present.
+    // Para "preenchido", pelo menos um candidato precisa estar presente.
     if (filter.filled) {
       return paths.some((path) => !matchBlank(path));
     }
@@ -297,7 +297,7 @@ export const createMatchHelpers = (item, helpers) => {
   };
 
   const matchItemToken = (value) => {
-    // If the filter is explicitly "blank" or "filled", token matching would be too loose.
+    // Se o filtro for explicitamente "em branco" ou "preenchido", o match por token ficaria amplo demais.
     if (
       value &&
       typeof value === 'object' &&

@@ -26,8 +26,8 @@
     }
   };
 
-  // Debug: avoid persisting large/sensitive responses. We only keep minimal JSON
-  // for a small whitelist of endpoints that help map ids -> labels.
+  // Debug: evitar persistir respostas grandes/sensiveis. Mantemos apenas um JSON minimo
+  // para uma pequena lista permitida de endpoints que ajuda a mapear ids -> labels.
   const getDebugCaptureKind = (url) => {
     try {
       const parsed = new URL(String(url), location.origin);
@@ -79,13 +79,13 @@
       );
     }
 
-    // companies
+    // empresas
     if (Array.isArray(payload)) {
       return payload.map((item) => pickObject(item, ["_id", "fantasyName", "dateUpdate", "dateCreation"]) || { value: item });
     }
     const obj = payload && typeof payload === "object" ? payload : null;
     if (!obj) return payload;
-    // Keep only a small subset: enough to identify the company.
+    // Manter apenas um subconjunto pequeno: suficiente para identificar a empresa.
     const direct = pickObject(obj, ["_id", "fantasyName", "dateUpdate", "dateCreation"]);
     if (direct && direct.fantasyName) return direct;
     const nested = pickObject(obj?.data, ["_id", "fantasyName", "dateUpdate", "dateCreation"]);
@@ -110,7 +110,7 @@
       const root = document?.documentElement;
       const flag = root?.dataset?.botSpDebugEnabled;
       if (flag != null) return flag === '1';
-      // Fallback (legacy) if some environment uses a global flag.
+      // Alternativa (legado) caso algum ambiente use uma flag global.
       return Boolean(window.__BOT_SP_DEBUG_ENABLED__);
     } catch {
       return false;

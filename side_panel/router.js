@@ -13,7 +13,6 @@ export const saveActiveScreenId = async (screenId) => {
   try {
     await chrome.storage.local.set({ [ACTIVE_SCREEN_KEY]: screenId });
   } catch {
-    // ignore
+    // ignorar
   }
 };
-

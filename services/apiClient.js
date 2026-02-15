@@ -198,10 +198,10 @@ export const fetchUraAiAgentFunctions = async (authorization, signal) => {
   });
   const payload = await parseJson(response);
 
-  // Expected: array OR { functions: [...] } OR { docs: [...] } etc.
+  // Esperado: array OU { functions: [...] } OU { docs: [...] } etc.
   let list = normalizeList(payload, ['functions', 'docs', 'items']);
 
-  // Fallback: { functions: { name: {...} } }
+  // Alternativa: { functions: { name: {...} } }
   if (list.length === 0) {
     const obj = payload?.functions;
     if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
@@ -212,7 +212,7 @@ export const fetchUraAiAgentFunctions = async (authorization, signal) => {
     }
   }
 
-  // Fallback: payload is a map.
+  // Alternativa: payload e um mapa.
   if (list.length === 0 && payload && typeof payload === 'object' && !Array.isArray(payload)) {
     const entries = Object.entries(payload);
     if (entries.length > 0 && entries.length <= 200) {

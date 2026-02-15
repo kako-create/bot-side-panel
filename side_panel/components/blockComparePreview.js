@@ -82,7 +82,7 @@ const resolveFieldCandidates = (payload) => {
   pushIf('jsonPayload', 'Payload', payload.jsonPayload, { kind: 'code' });
   pushIf('scriptCode', 'Script', payload.scriptCode, { kind: 'code' });
 
-  // Common nested payloads.
+  // Payloads aninhados comuns.
   pushIf('leia.question', 'Leia', payload.leia?.question);
   pushIf('chatgpt.prompt', 'Prompt', payload.chatgpt?.prompt, { kind: 'code' });
 
@@ -114,10 +114,10 @@ const getNodeAccent = (mode, type) => {
   const raw = String(type ?? '').trim().toLowerCase();
   if (!raw) return normalizedMode === MODE_URA ? '#A638B8' : '#4d70ff';
 
-  // API cards in the platform are purple.
+  // Cards de API na plataforma sao roxos.
   if (raw.includes('apiv2') || raw.includes('api v2') || raw === 'api') return '#A638B8';
 
-  // Simple fallbacks per mode.
+  // Alternativas simples por modo.
   return normalizedMode === MODE_URA ? '#6B5CF2' : '#4d70ff';
 };
 
@@ -338,8 +338,8 @@ export const createBlockComparePreview = ({
   return wrapper;
 };
 
-// Visual preview in the "grid" style (mode-specific).
+// Preview visual no estilo "grid" (especifico por modo).
 export const createBlockGridPreviewCard = (args = {}) => createBuilderNodePreview(args);
 
-// Legacy export (kept for reuse in other pages). For "platform-like" visuals prefer `createBlockComparePreview`.
+// Export legado (mantido para reuso em outras paginas). Para visual "tipo plataforma", prefira `createBlockComparePreview`.
 export const createBlockPreviewCard = (args = {}) => createFallbackPreviewCard(args);

@@ -127,7 +127,7 @@ const onExport = async () => {
       try {
         lines.push(JSON.stringify(item));
       } catch {
-        // ignore invalid entries
+        // ignorar entradas invalidas
       }
     }
     const text = `${lines.join('\n')}\n`;
@@ -201,7 +201,7 @@ export const screenDebug = {
         try {
           fn();
         } catch {
-          // ignore
+          // ignorar
         }
       });
       if (rootEl) rootEl.innerHTML = '';

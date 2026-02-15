@@ -15,7 +15,7 @@ const dispatchSettingsChanged = (source = 'runtime') => {
       }),
     );
   } catch {
-    // ignore
+    // ignorar
   }
 };
 
