@@ -183,6 +183,11 @@ export const initApp = async () => {
     }
   };
 
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message?.type !== MessageType.CONTEXT_CHANGED) return;
+    refreshContextForMenu();
+  });
+
   const onNavigate = (event) => {
     const nextScreenId = event?.detail?.screenId;
     if (!nextScreenId) return;

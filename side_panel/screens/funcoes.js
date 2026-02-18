@@ -315,6 +315,14 @@ const init = async () => {
   if (els.refreshBtn) on(els.refreshBtn, 'click', load);
   initSectionToggles();
   await load();
+
+  const onMessage = (message) => {
+    if (disposed) return;
+    if (message?.type !== MessageType.CONTEXT_CHANGED) return;
+    load();
+  };
+  chrome.runtime.onMessage.addListener(onMessage);
+  cleanupFns.push(() => chrome.runtime.onMessage.removeListener(onMessage));
 };
 
 export const screenFuncoes = {

@@ -601,7 +601,7 @@ const loadGroupItems = async (groupId, wrapper) => {
 
 const startSync = async (fullItems) => {
   if (disposed) return;
-  const response = await callBG(MessageType.START_SYNC, { fullItems });
+  const response = await callBG(MessageType.START_SYNC, { botId: state.botId, fullItems });
   if (disposed) return;
   if (!response.ok) {
     setText(els.statusSync, response.error?.message ?? 'Falha ao iniciar sync');
@@ -1272,6 +1272,10 @@ const bindEvents = () => {
 
   const onMessage = (message) => {
     if (disposed) return;
+    if (message?.type === MessageType.CONTEXT_CHANGED) {
+      loadContext();
+      return;
+    }
     if (message?.type === MessageType.SYNC_STATUS) {
       applySyncStatus(message.state);
       if (!message.state?.running && message.state?.phase === 'idle') {
