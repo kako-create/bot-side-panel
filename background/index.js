@@ -20,6 +20,9 @@ let contextState = {
   updatedAt: null,
 };
 
+/** @type {Map<number, { botId: string | null, mode: string, appBaseUrl: string | null, updatedAt: string | null }>} */
+const contextByTabState = new Map();
+
 let authSessionState = {
   authorization: null,
   updatedAt: null,
@@ -61,6 +64,76 @@ const initState = async () => {
     }
   }
 };
+
+const toTabId = (value) => {
+  if (!Number.isInteger(value)) return null;
+  if (value < 0) return null;
+  return value;
+};
+
+const normalizeContextSnapshot = (value) => ({
+  botId: value?.botId ?? null,
+  mode: normalizeMode(value?.mode),
+  appBaseUrl: value?.appBaseUrl ?? null,
+  updatedAt: value?.updatedAt ?? null,
+});
+
+const areContextsEqual = (left, right) =>
+  (left?.botId ?? null) === (right?.botId ?? null) &&
+  normalizeMode(left?.mode) === normalizeMode(right?.mode) &&
+  (left?.appBaseUrl ?? null) === (right?.appBaseUrl ?? null);
+
+const getTabContext = (tabId) => {
+  const normalizedTabId = toTabId(tabId);
+  if (normalizedTabId == null) return null;
+  const value = contextByTabState.get(normalizedTabId);
+  return value ? normalizeContextSnapshot(value) : null;
+};
+
+const setTabContext = (tabId, context) => {
+  const normalizedTabId = toTabId(tabId);
+  if (normalizedTabId == null) return false;
+  const next = normalizeContextSnapshot(context);
+  const prev = contextByTabState.get(normalizedTabId) ?? null;
+  if (areContextsEqual(prev, next)) return false;
+  contextByTabState.set(normalizedTabId, next);
+  return true;
+};
+
+const getActiveTab = async () => {
+  try {
+    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    return tabs?.[0] ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const requestContextFromTab = (tabId) =>
+  new Promise((resolve) => {
+    const normalizedTabId = toTabId(tabId);
+    if (normalizedTabId == null) {
+      resolve(null);
+      return;
+    }
+    try {
+      chrome.tabs.sendMessage(normalizedTabId, { type: MessageType.REQUEST_CONTEXT }, (response) => {
+        const err = chrome.runtime.lastError;
+        if (err) {
+          resolve(null);
+          return;
+        }
+        const url = typeof response?.url === 'string' ? response.url : null;
+        if (!url) {
+          resolve(null);
+          return;
+        }
+        resolve({ url });
+      });
+    } catch {
+      resolve(null);
+    }
+  });
 
 const persistContextState = async () => {
   const result = await safeSet('local', { [CONTEXT_KEY]: contextState });
@@ -117,31 +190,44 @@ const updateAuthSession = async (token) => {
   await persistAuthState();
 };
 
-const updateContextFromUrl = async (url) => {
+const updateContextFromUrl = async (url, { tabId = null, broadcast = true } = {}) => {
   const { botId, mode, appBaseUrl } = resolveContextFromUrl(url);
-  if (!botId && !mode) return false;
-  const nextMode = normalizeMode(mode);
-  const nextAppBaseUrl = appBaseUrl ?? null;
-  const changed =
-    botId !== contextState.botId ||
-    nextMode !== contextState.mode ||
-    nextAppBaseUrl !== (contextState.appBaseUrl ?? null);
-  if (!changed) return false;
-  contextState = {
+  if (!botId && !mode) return { changed: false, context: null };
+
+  const normalizedTabId = toTabId(tabId);
+  const nextContext = {
     botId,
-    mode: nextMode,
-    appBaseUrl: nextAppBaseUrl,
+    mode: normalizeMode(mode),
+    appBaseUrl: appBaseUrl ?? null,
     updatedAt: new Date().toISOString(),
   };
+
+  const tabChanged = normalizedTabId != null ? setTabContext(normalizedTabId, nextContext) : false;
+  const globalChanged = !areContextsEqual(contextState, nextContext);
+  const changed = tabChanged || globalChanged;
+
+  if (!changed) {
+    return {
+      changed: false,
+      context: normalizedTabId != null ? getTabContext(normalizedTabId) : normalizeContextSnapshot(contextState),
+    };
+  }
+
+  contextState = normalizeContextSnapshot(nextContext);
   await persistContextState();
-  return true;
+  if (broadcast) {
+    broadcastContextChanged({ context: nextContext, tabId: normalizedTabId });
+  }
+  return { changed: true, context: normalizeContextSnapshot(nextContext) };
 };
 
-const resolveBotIdFromMessage = (message) => {
+const resolveBotIdFromMessage = (message, senderTabId = null) => {
   const explicitBotId = String(message?.botId ?? '').trim();
   if (explicitBotId) return explicitBotId;
   const fromUrl = resolveContextFromUrl(message?.url).botId;
   if (fromUrl) return fromUrl;
+  const tabContext = getTabContext(senderTabId);
+  if (tabContext?.botId) return tabContext.botId;
   return contextState.botId || null;
 };
 
@@ -327,6 +413,75 @@ const getSyncedMode = async (botId) => {
   }
 };
 
+const resolveContextForActiveTab = async ({ refreshFromContent = false } = {}) => {
+  const activeTab = await getActiveTab();
+  const activeTabId = toTabId(activeTab?.id);
+  if (activeTabId == null) {
+    return { context: normalizeContextSnapshot(contextState), tabId: null };
+  }
+
+  if (refreshFromContent) {
+    const fromContent = await requestContextFromTab(activeTabId);
+    if (fromContent?.url) {
+      await updateContextFromUrl(fromContent.url, { tabId: activeTabId, broadcast: false });
+    }
+  }
+
+  const activeUrl = typeof activeTab?.url === 'string' ? activeTab.url : '';
+  if (activeUrl) {
+    const parsed = resolveContextFromUrl(activeUrl);
+    if (parsed?.botId || parsed?.mode) {
+      await updateContextFromUrl(activeUrl, { tabId: activeTabId, broadcast: false });
+    }
+  }
+
+  const byTab = getTabContext(activeTabId);
+  if (byTab) {
+    return { context: byTab, tabId: activeTabId };
+  }
+
+  const fromTabUrl = resolveContextFromUrl(activeUrl);
+  return {
+    context: normalizeContextSnapshot({
+      botId: null,
+      mode: DEFAULT_MODE,
+      appBaseUrl: fromTabUrl?.appBaseUrl ?? null,
+      updatedAt: null,
+    }),
+    tabId: activeTabId,
+  };
+};
+
+const withSyncedMode = async (context) => {
+  const base = normalizeContextSnapshot(context);
+  if (!base.botId) return base;
+  const syncedMode = await getSyncedMode(base.botId);
+  if (!syncedMode) return base;
+  return { ...base, mode: syncedMode };
+};
+
+const broadcastContextChanged = ({ context, tabId = null }) => {
+  try {
+    chrome.runtime.sendMessage(
+      {
+        type: MessageType.CONTEXT_CHANGED,
+        context: normalizeContextSnapshot(context),
+        tabId: toTabId(tabId),
+        hasAuth: Boolean(authSessionState.authorization),
+        authUpdatedAt: authSessionState.updatedAt,
+      },
+      () => {
+        const err = chrome.runtime.lastError;
+        if (err && !/receiving end does not exist/i.test(err.message)) {
+          // ignorar erros conhecidos de "no receiver"
+        }
+      },
+    );
+  } catch {
+    // ignorar
+  }
+};
+
 const broadcastStatus = (state) => {
   try {
     chrome.runtime.sendMessage({ type: MessageType.SYNC_STATUS, state }, () => {
@@ -340,15 +495,16 @@ const broadcastStatus = (state) => {
   }
 };
 
-const triggerAutoSync = async () => {
+const triggerAutoSync = async (context = contextState) => {
+  const effectiveContext = normalizeContextSnapshot(context);
   const settings = getUserSettingsState();
   if (!settings.autoSyncEnabled) return;
-  if (!contextState.botId || !authSessionState.authorization) return;
-  if (contextState.botId === lastAutoSyncBotId) return;
-  lastAutoSyncBotId = contextState.botId;
+  if (!effectiveContext.botId || !authSessionState.authorization) return;
+  if (effectiveContext.botId === lastAutoSyncBotId) return;
+  lastAutoSyncBotId = effectiveContext.botId;
   try {
     await startSync({
-      botId: contextState.botId,
+      botId: effectiveContext.botId,
       authorization: authSessionState.authorization,
       fullItems: settings.autoSyncFullItems,
       onProgress: broadcastStatus,
@@ -364,7 +520,15 @@ if (chrome.sidePanel?.setPanelBehavior) {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+if (chrome.tabs?.onRemoved) {
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    const normalizedTabId = toTabId(tabId);
+    if (normalizedTabId == null) return;
+    contextByTabState.delete(normalizedTabId);
+  });
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const respond = (payload) => {
     sendResponse(payload);
     return true;
@@ -386,8 +550,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
     case MessageType.BOT_ID: {
       initPromise.then(() => {
-        updateContextFromUrl(message.url).then((changed) => {
-          if (changed) triggerAutoSync();
+        const senderTabId = toTabId(sender?.tab?.id);
+        updateContextFromUrl(message.url, { tabId: senderTabId }).then((result) => {
+          if (result?.changed && result.context) triggerAutoSync(result.context);
         });
         respond(respondOk({ ok: true }));
       });
@@ -401,7 +566,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           return;
         }
 
-        const targetBotId = resolveBotIdFromMessage(message);
+        const targetBotId = resolveBotIdFromMessage(message, sender?.tab?.id);
         if (!targetBotId) {
           respond(respondOk({ ok: false, skipped: 'bot_not_found' }));
           return;
@@ -511,7 +676,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           respond(respondErr(ErrorCode.NOT_READY, 'Token ausente.'));
           return;
         }
-        if (contextState.mode !== MODE_URA) {
+        const active = await resolveContextForActiveTab({ refreshFromContent: true });
+        const activeContext = await withSyncedMode(active.context);
+        if (activeContext.mode !== MODE_URA) {
           respond(respondErr(ErrorCode.INVALID_REQUEST, 'Disponível apenas no mode URA.'));
           return;
         }
@@ -532,14 +699,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
     case MessageType.GET_CONTEXT: {
       initPromise.then(async () => {
-        let mode = contextState.mode;
-        if (contextState.botId) {
-          const syncedMode = await getSyncedMode(contextState.botId);
-          if (syncedMode) mode = syncedMode;
-        }
+        const active = await resolveContextForActiveTab({ refreshFromContent: true });
+        const context = await withSyncedMode(active.context);
         respond(
           respondOk({
-            context: { ...contextState, mode },
+            context,
+            tabId: active.tabId,
             hasAuth: Boolean(authSessionState.authorization),
             authUpdatedAt: authSessionState.updatedAt,
             storageError,
@@ -605,8 +770,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return true;
     }
     case MessageType.START_SYNC: {
-      initPromise.then(() => {
-        const requestedBotId = message?.botId ?? contextState.botId;
+      initPromise.then(async () => {
+        const active = await resolveContextForActiveTab({ refreshFromContent: true });
+        const requestedBotId = message?.botId ?? active.context?.botId ?? contextState.botId;
         if (!requestedBotId || !authSessionState.authorization) {
           respond(respondErr(ErrorCode.NOT_READY, 'botId ou token ausente.'));
           return;
@@ -626,7 +792,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
     case MessageType.SYNC_VARIABLES: {
       initPromise.then(async () => {
-        const requestedBotId = message?.botId ?? contextState.botId;
+        const active = await resolveContextForActiveTab({ refreshFromContent: true });
+        const requestedBotId = message?.botId ?? active.context?.botId ?? contextState.botId;
         if (!requestedBotId || !authSessionState.authorization) {
           respond(respondErr(ErrorCode.NOT_READY, 'botId ou token ausente.'));
           return;
@@ -661,7 +828,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
     case MessageType.SYNC_TAGS: {
       initPromise.then(async () => {
-        const requestedBotId = message?.botId ?? contextState.botId;
+        const active = await resolveContextForActiveTab({ refreshFromContent: true });
+        const requestedBotId = message?.botId ?? active.context?.botId ?? contextState.botId;
         if (!requestedBotId || !authSessionState.authorization) {
           respond(respondErr(ErrorCode.NOT_READY, 'botId ou token ausente.'));
           return;

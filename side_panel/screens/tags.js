@@ -604,6 +604,15 @@ const init = async () => {
   renderTags();
   updateSyncButton();
 
+  const onMessage = (message) => {
+    if (disposed) return;
+    if (message?.type === MessageType.CONTEXT_CHANGED) {
+      loadContext();
+    }
+  };
+  chrome.runtime.onMessage.addListener(onMessage);
+  cleanupFns.push(() => chrome.runtime.onMessage.removeListener(onMessage));
+
   const intervalId = setInterval(() => loadContext(), 2000);
   cleanupFns.push(() => clearInterval(intervalId));
 };

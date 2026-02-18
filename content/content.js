@@ -57,6 +57,8 @@
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") reportBotId();
   });
+  window.addEventListener("focus", reportBotId);
+  window.addEventListener("pageshow", reportBotId);
 
   window.addEventListener("message", (ev) => {
     if (ev.source !== window) return;
@@ -98,5 +100,9 @@
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg?.type === "BOT_SP_PING") sendResponse({ ok: true });
+    if (msg?.type === "BOT_SP_REQUEST_CONTEXT") {
+      reportBotId();
+      sendResponse({ ok: true, url: location.href });
+    }
   });
 })();

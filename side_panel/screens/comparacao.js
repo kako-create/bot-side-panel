@@ -1179,6 +1179,14 @@ const bindEvents = () => {
       await loadRecords();
       render();
     });
+
+  const onMessage = (message) => {
+    if (disposed) return;
+    if (message?.type !== MessageType.CONTEXT_CHANGED) return;
+    loadContext().then(() => render());
+  };
+  chrome.runtime.onMessage.addListener(onMessage);
+  cleanupFns.push(() => chrome.runtime.onMessage.removeListener(onMessage));
 };
 
 const init = async () => {
