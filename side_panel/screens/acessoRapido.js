@@ -9,8 +9,6 @@ const createInitialState = () => ({
   records: [],
   loading: false,
   error: null,
-  groupsOpenAll: true,
-  openOrgGroups: {},
 });
 
 let rootEl = null;
@@ -34,9 +32,7 @@ const initEls = () => {
   const q = (sel) => rootEl?.querySelector(sel) ?? null;
   return {
     refreshBtn: q('#quick-access-refresh'),
-    groupsToggleBtn: q('#quick-access-groups-toggle'),
     recordsCount: q('#quick-access-records-count'),
-    orgsCount: q('#quick-access-orgs-count'),
     error: q('#quick-access-error'),
     list: q('#quick-access-list'),
     empty: q('#quick-access-empty'),
@@ -72,30 +68,6 @@ const buildAbstractUrl = (botId, mode) => {
   return `${ABSTRACT_BASE_URL}/bots/${id}/abstract`;
 };
 
-const normalizeCompanyName = (value) => {
-  const text = String(value ?? '').trim();
-  return text || null;
-};
-
-const resolveOrgGroupInfo = (record) => {
-  const orgId = String(record?.orgId ?? '').trim();
-  const companyName = normalizeCompanyName(record?.companyFantasyName);
-  if (orgId) {
-    return {
-      key: `org:${orgId}`,
-      orgId,
-      label: companyName || `Org ${orgId}`,
-      isUnknown: false,
-    };
-  }
-  return {
-    key: 'org:unknown',
-    orgId: '',
-    label: companyName || 'Sem organização',
-    isUnknown: true,
-  };
-};
-
 const sortRecords = (records) => {
   const list = Array.isArray(records) ? records.slice() : [];
   list.sort((a, b) => {
@@ -106,41 +78,9 @@ const sortRecords = (records) => {
   return list;
 };
 
-const groupRecordsByOrg = (records) => {
-  const map = new Map();
-  for (const record of Array.isArray(records) ? records : []) {
-    const groupInfo = resolveOrgGroupInfo(record);
-    if (!map.has(groupInfo.key)) {
-      map.set(groupInfo.key, {
-        key: groupInfo.key,
-        label: groupInfo.label,
-        orgId: groupInfo.orgId,
-        isUnknown: groupInfo.isUnknown,
-        records: [],
-      });
-    }
-    map.get(groupInfo.key).records.push(record);
-  }
-
-  const groups = Array.from(map.values());
-  groups.forEach((group) => {
-    group.records = sortRecords(group.records);
-  });
-
-  groups.sort((a, b) => {
-    if (a.isUnknown !== b.isUnknown) return a.isUnknown ? 1 : -1;
-    return String(a.label).localeCompare(String(b.label), 'pt-BR');
-  });
-
-  return groups;
-};
-
 const updateSummary = () => {
   const records = Array.isArray(state.records) ? state.records : [];
-  const orgGroups = groupRecordsByOrg(records).filter((group) => !group.isUnknown);
-
   setText(els.recordsCount, String(records.length));
-  setText(els.orgsCount, String(orgGroups.length));
 
   if (els.error) {
     if (state.error) {
@@ -155,12 +95,6 @@ const updateSummary = () => {
   if (els.refreshBtn) {
     els.refreshBtn.disabled = Boolean(state.loading);
     els.refreshBtn.textContent = state.loading ? 'Atualizando...' : 'Atualizar';
-  }
-
-  if (els.groupsToggleBtn) {
-    const hasRecords = records.length > 0;
-    els.groupsToggleBtn.disabled = !hasRecords || state.loading;
-    els.groupsToggleBtn.textContent = state.groupsOpenAll && hasRecords ? 'Fechar grupos' : 'Abrir grupos';
   }
 };
 
@@ -213,59 +147,8 @@ const renderRecords = () => {
   if (els.empty) els.empty.hidden = records.length > 0;
   if (!records.length) return;
 
-  const groups = groupRecordsByOrg(records);
-  for (const group of groups) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'search-group';
-
-    const header = document.createElement('div');
-    header.className = 'search-group-header';
-
-    const left = document.createElement('div');
-    left.className = 'bot-group-label';
-
-    const title = document.createElement('span');
-    title.textContent = group.label;
-    left.appendChild(title);
-
-    if (group.orgId) {
-      const org = document.createElement('span');
-      org.className = 'bot-group-id';
-      org.textContent = group.orgId;
-      left.appendChild(org);
-    }
-
-    const right = document.createElement('span');
-    right.className = 'tag-group-meta';
-    right.textContent = String(group.records.length);
-
-    header.appendChild(left);
-    header.appendChild(right);
-
-    const content = document.createElement('div');
-    content.className = 'search-group-content';
-    group.records.forEach((record) => content.appendChild(buildRecordRow(record)));
-
-    const groupPref = state.openOrgGroups[group.key];
-    const isOpen = state.groupsOpenAll ? groupPref !== false : groupPref === true;
-    if (!isOpen) {
-      content.setAttribute('hidden', 'true');
-    }
-
-    header.addEventListener('click', () => {
-      const currentlyOpen = !content.hasAttribute('hidden');
-      if (currentlyOpen) {
-        content.setAttribute('hidden', 'true');
-        state.openOrgGroups[group.key] = false;
-      } else {
-        content.removeAttribute('hidden');
-        state.openOrgGroups[group.key] = true;
-      }
-    });
-
-    wrapper.appendChild(header);
-    wrapper.appendChild(content);
-    els.list.appendChild(wrapper);
+  for (const record of records) {
+    els.list.appendChild(buildRecordRow(record));
   }
 };
 
@@ -280,29 +163,20 @@ const loadRecords = async () => {
     if (!response.ok) {
       state.records = [];
       state.error = response.error?.message ?? 'Falha ao listar registros.';
-      state.groupsOpenAll = false;
-      state.openOrgGroups = {};
     } else {
       const list = Array.isArray(response.data?.bots) ? response.data.bots : [];
       const filtered = list
         .filter((meta) => {
-          const orgId = String(meta?.orgId ?? '').trim();
           const mode = normalizeMode(meta?.mode);
-          return Boolean(orgId) && Boolean(mode);
+          return Boolean(mode);
         })
         .map((meta) => ({ ...meta, mode: normalizeMode(meta?.mode) }));
 
       state.records = sortRecords(filtered);
-      if (!state.records.length) {
-        state.groupsOpenAll = false;
-        state.openOrgGroups = {};
-      }
     }
   } catch (error) {
     state.records = [];
     state.error = String(error?.message ?? error);
-    state.groupsOpenAll = false;
-    state.openOrgGroups = {};
   } finally {
     state.loading = false;
   }
@@ -313,15 +187,6 @@ const loadRecords = async () => {
 
 const init = async () => {
   if (els.refreshBtn) on(els.refreshBtn, 'click', () => loadRecords());
-  if (els.groupsToggleBtn) {
-    on(els.groupsToggleBtn, 'click', () => {
-      state.groupsOpenAll = !state.groupsOpenAll;
-      state.openOrgGroups = {};
-      updateSummary();
-      renderRecords();
-    });
-  }
-
   await loadRecords();
 };
 
