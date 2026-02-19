@@ -109,6 +109,36 @@ const getActiveTab = async () => {
   }
 };
 
+const BUILDER_HOSTS = new Set([
+  'new.boteria.com.br',
+  'bots.digitalcontact.cloud',
+]);
+
+const getUrlHostname = (url) => {
+  try {
+    return new URL(String(url ?? '')).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+};
+
+const isBuilderUrl = (url) => {
+  const host = getUrlHostname(url);
+  if (!host) return false;
+  return BUILDER_HOSTS.has(host);
+};
+
+const isTransientTabUrl = (url) => {
+  const value = String(url ?? '').trim().toLowerCase();
+  if (!value) return true;
+  if (value === 'about:blank') return true;
+  return (
+    value.startsWith('about:') ||
+    value.startsWith('chrome-error://') ||
+    value.startsWith('edge-error://')
+  );
+};
+
 const requestContextFromTab = (tabId) =>
   new Promise((resolve) => {
     const normalizedTabId = toTabId(tabId);
@@ -441,6 +471,19 @@ const resolveContextForActiveTab = async ({ refreshFromContent = false } = {}) =
   }
 
   const fromTabUrl = resolveContextFromUrl(activeUrl);
+  const canFallbackToGlobal =
+    Boolean(contextState?.botId) &&
+    (isBuilderUrl(activeUrl) || isTransientTabUrl(activeUrl));
+
+  if (canFallbackToGlobal) {
+    const fallback = normalizeContextSnapshot({
+      ...contextState,
+      appBaseUrl: fromTabUrl?.appBaseUrl ?? contextState?.appBaseUrl ?? null,
+    });
+    setTabContext(activeTabId, fallback);
+    return { context: fallback, tabId: activeTabId };
+  }
+
   return {
     context: normalizeContextSnapshot({
       botId: null,

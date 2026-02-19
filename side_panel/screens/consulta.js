@@ -13,12 +13,14 @@ import { getModeConfig, DEFAULT_MODE_ID } from '../../config/modeRegistry.js';
 import { getItemFieldValue } from '../../filters/itemHelpers.js';
 
 const TEMPLATE_ID = 'tpl-screen-consulta';
+const CONTEXT_LOSS_GRACE_MS = 8_000;
 
 const createInitialState = () => ({
   botId: null,
   mode: null,
   appBaseUrl: null,
   hasAuth: false,
+  contextMissingSince: null,
   syncStatus: null,
   groups: [],
   filteredCounts: null,
@@ -262,9 +264,28 @@ const loadContext = async () => {
   const response = await callBG(MessageType.GET_CONTEXT);
   if (disposed) return;
   if (response.ok && response.data?.context) {
-    state.botId = response.data.context.botId ?? null;
-    state.mode = response.data.context.mode ?? null;
-    state.appBaseUrl = response.data.context.appBaseUrl ?? null;
+    const nextBotId = response.data.context.botId ?? null;
+    const nextMode = response.data.context.mode ?? null;
+    const nextAppBaseUrl = response.data.context.appBaseUrl ?? null;
+    const isMissingBotId = !nextBotId;
+
+    if (isMissingBotId && state.botId) {
+      if (!state.contextMissingSince) state.contextMissingSince = Date.now();
+      const elapsed = Date.now() - state.contextMissingSince;
+      if (elapsed < CONTEXT_LOSS_GRACE_MS) {
+        state.hasAuth = Boolean(response.data.hasAuth);
+        if (nextAppBaseUrl) state.appBaseUrl = nextAppBaseUrl;
+        setText(els.statusAuth, state.hasAuth ? 'ok' : 'ausente');
+        updateSyncButtons();
+        return;
+      }
+    } else {
+      state.contextMissingSince = null;
+    }
+
+    state.botId = nextBotId;
+    state.mode = nextMode;
+    state.appBaseUrl = nextAppBaseUrl;
     setCurrentMode(state.mode);
     state.hasAuth = Boolean(response.data.hasAuth);
     updateBotLabel();
@@ -386,9 +407,38 @@ const buildTypeOption = ({ value, label, iconType, count, onSelect }) => {
   return option;
 };
 
+const appendPreservedTypeOption = ({
+  select,
+  menu,
+  value,
+  label,
+  iconType,
+  onSelect,
+}) => {
+  if (!select || !value) return;
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = `${label} (preservado)`;
+  option.dataset.preserved = 'true';
+  select.appendChild(option);
+
+  if (menu) {
+    menu.appendChild(
+      buildTypeOption({
+        value,
+        label: `${label} (preservado)`,
+        iconType,
+        onSelect,
+      }),
+    );
+  }
+};
+
 const updateTypeOptions = () => {
   ensureTypeSelectBindings(els.typeFilterSelect, els.typeFilterButton, els.typeFilterMenu);
   ensureTypeSelectBindings(els.advancedTypeSelect, els.advancedTypeButton, els.advancedTypeMenu);
+  const prevTypeLabelByValue = { ...(state.typeLabelByValue || {}) };
+  const prevTypeIconByValue = { ...(state.typeIconByValue || {}) };
   const typeCounts = {};
   const typeLabelByValue = {};
   const typeIconByValue = {};
@@ -408,12 +458,12 @@ const updateTypeOptions = () => {
     });
   }
 
-  state.typeLabelByValue = typeLabelByValue;
-  state.typeIconByValue = typeIconByValue;
+  state.typeLabelByValue = { ...prevTypeLabelByValue, ...typeLabelByValue };
+  state.typeIconByValue = { ...prevTypeIconByValue, ...typeIconByValue };
   const entries = Object.entries(typeCounts).map(([key, count]) => ({
     value: key,
-    label: typeLabelByValue[key] ?? key,
-    iconType: typeIconByValue[key] ?? key,
+    label: state.typeLabelByValue[key] ?? key,
+    iconType: state.typeIconByValue[key] ?? key,
     count,
   }));
 
@@ -461,7 +511,20 @@ const updateTypeOptions = () => {
   });
 
   if (state.type && !entries.find((entry) => entry.value === state.type)) {
-    state.type = '';
+    appendPreservedTypeOption({
+      select: els.typeFilter,
+      menu: els.typeFilterMenu,
+      value: state.type,
+      label: state.typeLabelByValue[state.type] ?? state.type,
+      iconType: state.typeIconByValue[state.type] ?? state.type,
+      onSelect: (selected) => {
+        state.type = selected;
+        els.typeFilter.value = selected;
+        syncTypeSelectButton({ button: els.typeFilterButton, value: selected, labels: state.typeLabelByValue });
+        els.typeFilterMenu.hidden = true;
+        applyFilters();
+      },
+    });
   }
   els.typeFilter.value = state.type;
   syncTypeSelectButton({ button: els.typeFilterButton, value: state.type, labels: state.typeLabelByValue });
@@ -508,7 +571,21 @@ const updateTypeOptions = () => {
     });
 
     if (state.advanced.type && !entries.find((entry) => entry.value === state.advanced.type)) {
-      state.advanced.type = '';
+      appendPreservedTypeOption({
+        select: els.advancedType,
+        menu: els.advancedTypeMenu,
+        value: state.advanced.type,
+        label: state.typeLabelByValue[state.advanced.type] ?? state.advanced.type,
+        iconType: state.typeIconByValue[state.advanced.type] ?? state.advanced.type,
+        onSelect: (selected) => {
+          state.advanced.type = selected;
+          els.advancedType.value = selected;
+          syncTypeSelectButton({ button: els.advancedTypeButton, value: selected, labels: state.typeLabelByValue });
+          els.advancedTypeMenu.hidden = true;
+          updateSpecificFilterUI();
+          persistPanelState();
+        },
+      });
     }
     els.advancedType.value = state.advanced.type;
     syncTypeSelectButton({
@@ -776,12 +853,20 @@ const updateSpecificFilterUI = () => {
   const typeValue = state.advanced.type || '';
   const configEntry = resolveSpecificConfig(typeValue);
 
-  if (!typeValue || !configEntry) {
+  if (!typeValue) {
     els.filterSpecificContainer.hidden = true;
     els.filterSpecificContent.innerHTML = '';
     els.filterSpecificToggle.checked = false;
-    state.advanced.specific = { enabled: false, fields: {}, type: typeValue };
-    persistPanelState();
+    els.filterSpecificContent.style.display = 'none';
+    return;
+  }
+
+  if (!configEntry) {
+    // Evita perder filtros em oscilacoes temporarias de contexto/modo.
+    els.filterSpecificContainer.hidden = true;
+    els.filterSpecificContent.innerHTML = '';
+    els.filterSpecificToggle.checked = Boolean(state.advanced.specific.enabled);
+    els.filterSpecificContent.style.display = 'none';
     return;
   }
 
