@@ -11,9 +11,19 @@ import { buildBlockLink } from '../links.js';
 import { consumeConsultaIntent } from '../consultaIntent.js';
 import { getModeConfig, DEFAULT_MODE_ID } from '../../config/modeRegistry.js';
 import { getItemFieldValue } from '../../filters/itemHelpers.js';
+import { shouldShowMenuWarning } from '../../shared/menuWarning.js';
 
 const TEMPLATE_ID = 'tpl-screen-consulta';
 const CONTEXT_LOSS_GRACE_MS = 8_000;
+const MENU_WARNING_ICON_PATH = 'assets/svgs/bot/MenuWarning.svg';
+
+const getMenuWarningIconUrl = () => {
+  try {
+    return chrome.runtime.getURL(MENU_WARNING_ICON_PATH);
+  } catch {
+    return null;
+  }
+};
 
 const createInitialState = () => ({
   botId: null,
@@ -1224,6 +1234,21 @@ const buildItemRow = (item, fallbackGroupId = null, section = 'quick') => {
       icon.remove();
     });
     title.appendChild(icon);
+  }
+
+  if (shouldShowMenuWarning(item, 20)) {
+    const warningUrl = getMenuWarningIconUrl();
+    if (warningUrl) {
+      const warning = document.createElement('img');
+      warning.className = 'item-warning-icon';
+      warning.alt = 'Menu com opção acima de 20 caracteres';
+      warning.src = warningUrl;
+      warning.title = 'Menu com opção acima de 20 caracteres';
+      warning.addEventListener('error', () => {
+        warning.remove();
+      });
+      title.appendChild(warning);
+    }
   }
 
   const titleText = document.createElement('span');

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- círculo amarelo -->
+  <circle cx="64" cy="64" r="60" fill="#F8D55B"/>
+
+  <!-- quadrado branco com cantos arredondados -->
+  <rect x="36" y="30" width="56" height="68" rx="12" fill="#FFFFFF"/>
+
+  <!-- exclamação -->
+  <rect x="60" y="44" width="8" height="30" rx="4" fill="#F8D55B"/>
+  <circle cx="64" cy="82" r="5" fill="#F8D55B"/>
+</svg>

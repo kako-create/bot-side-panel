@@ -913,6 +913,17 @@ input[type='text']::placeholder {
   color: var(--muted);
 }
 
+.builder-stage__warning {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 4px color-mix(in srgb, #000 18%, transparent));
+}
+
 .builder-node {
   width: min(280px, 100%);
   border: 2px solid var(--node-accent, var(--color-primary));
@@ -1310,6 +1321,13 @@ input[type='text']::placeholder {
 .item-icon {
   width: 18px;
   height: 18px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.item-warning-icon {
+  width: 16px;
+  height: 16px;
   object-fit: contain;
   flex-shrink: 0;
 }

@@ -5,6 +5,13 @@ import {
   createSectionTitle,
   createTextInput,
 } from '../../helpers.js';
+import { hasMenuOptionOverLength } from '../../../shared/menuWarning.js';
+
+const matchMenuOptionOver20Chars = (item, value) => {
+  if (value !== 'true' && value !== 'false') return true;
+  const hasLongOption = hasMenuOptionOverLength(item, 20);
+  return value === 'true' ? hasLongOption : !hasLongOption;
+};
 
 export const menuFilterConfig = {
   type: 'Menu',
@@ -134,6 +141,14 @@ export const menuFilterConfig = {
         label: 'Itens do menu (descrição)',
         key: 'menuItemsDescription',
         placeholder: 'Ex: UTC+02:00',
+        state,
+        onChange,
+      }),
+    );
+    container.appendChild(
+      createBooleanSelect({
+        label: 'Existe opção com mais de 20 caracteres',
+        key: 'menuOptionOver20Chars',
         state,
         onChange,
       }),
@@ -302,6 +317,7 @@ export const menuFilterConfig = {
       matchBoolean('menuOptions.NumberOp', state.menuOptionsNumberOp) &&
       matchBoolean('menuOptions.SuggestionOp', state.menuOptionsSuggestionOp) &&
       matchText('menuItems.description', state.menuItemsDescription) &&
+      matchMenuOptionOver20Chars(item, state.menuOptionOver20Chars) &&
       matchBoolean('captureAnswer', state.captureAnswer) &&
       matchText('errorMessage', state.errorMessage) &&
       matchText('errorMessageFinal', state.errorMessageFinal) &&

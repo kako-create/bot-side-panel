@@ -1,8 +1,10 @@
 import { getTypeIconUrl } from '../icons.js';
 import { getTypeLabel as getBotTypeLabel } from '../../modes/bot/typeLabels.js';
 import { getTypeLabel as getUraTypeLabel } from '../../modes/ura/typeLabels.js';
+import { shouldShowMenuWarning } from '../../shared/menuWarning.js';
 
 const MODE_URA = 'ura';
+const MENU_WARNING_ICON_PATH = 'assets/svgs/bot/MenuWarning.svg';
 
 const MAX_FIELDS = 5;
 const MAX_TEXT_CHARS = 340;
@@ -95,6 +97,14 @@ const createEl = (tag, className) => {
   return el;
 };
 
+const getMenuWarningIconUrl = () => {
+  try {
+    return chrome.runtime.getURL(MENU_WARNING_ICON_PATH);
+  } catch {
+    return null;
+  }
+};
+
 const createField = ({ label, value, kind, changed }) => {
   const row = createEl('div', `block-preview__field${changed ? ' block-preview__field--changed' : ''}`);
   const name = createEl('div', 'block-preview__field-label');
@@ -176,6 +186,7 @@ const createBuilderNodePreview = ({ item, label, mode, changedKeys } = {}) => {
   const type = String(item.type ?? payload.type ?? '').trim();
   const typeLabel = getModeTypeLabel(normalizedMode, type);
   const title = String(item.title ?? payload.title ?? '').trim() || 'Sem título';
+  const hasMenuWarning = shouldShowMenuWarning(item, 20);
 
   const accent = getNodeAccent(normalizedMode, type);
   const node = createEl('div', `builder-node builder-node--${normalizedMode}`);
@@ -246,6 +257,19 @@ const createBuilderNodePreview = ({ item, label, mode, changedKeys } = {}) => {
     text.textContent = 'Editar JSON payload';
     action.appendChild(text);
     node.appendChild(action);
+  }
+
+  if (hasMenuWarning) {
+    const warningUrl = getMenuWarningIconUrl();
+    if (warningUrl) {
+      const warning = document.createElement('img');
+      warning.className = 'builder-stage__warning';
+      warning.alt = 'Menu com opção acima de 20 caracteres';
+      warning.src = warningUrl;
+      warning.title = 'Menu com opção acima de 20 caracteres';
+      warning.addEventListener('error', () => warning.remove());
+      stage.appendChild(warning);
+    }
   }
 
   stage.appendChild(node);
