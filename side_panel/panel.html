@@ -313,6 +313,104 @@
 	        </section>
 	      </template>
 
+	      <template id="tpl-screen-ia">
+	        <section class="card surface status-card">
+	          <div class="section-header">
+	            <span class="semaforo" id="ia-light"></span>
+	            <h2 class="text-section-title">Sincronização</h2>
+	            <div class="section-actions">
+	              <button class="btn btn--ghost btn--sm section-toggle" data-target="ia-status-content" type="button">
+	                Recolher
+	              </button>
+	            </div>
+	          </div>
+	          <div id="ia-status-content" class="section-body">
+	            <div class="status-grid">
+	              <div class="status-row">
+	                <span class="label">Bot</span>
+	                <strong id="ia-bot">-</strong>
+	              </div>
+	              <div class="status-row">
+	                <span class="label">Token</span>
+	                <strong id="ia-auth">-</strong>
+	              </div>
+	              <div class="status-row">
+	                <span class="label">Status condições</span>
+	                <strong id="ia-status">-</strong>
+	              </div>
+	              <div class="status-row">
+	                <span class="label">Condições</span>
+	                <strong id="ia-total">0</strong>
+	              </div>
+	              <div class="status-row">
+	                <span class="label">Última sync condições</span>
+	                <strong id="ia-last-sync">-</strong>
+	              </div>
+	              <div class="status-row">
+	                <span class="label">Status intenções</span>
+	                <strong id="ia-lex-status">-</strong>
+	              </div>
+	              <div class="status-row">
+	                <span class="label">Intenções</span>
+	                <strong id="ia-lex-total-intents">0</strong>
+	              </div>
+	              <div class="status-row">
+	                <span class="label">Frases</span>
+	                <strong id="ia-lex-total-samples">0</strong>
+	              </div>
+	              <div class="status-row">
+	                <span class="label">Última sync intenções</span>
+	                <strong id="ia-lex-last-sync">-</strong>
+	              </div>
+	            </div>
+
+	            <p class="hint">
+	              Disponível apenas para BOT. Use os dois syncs para atualizar condições e intenções no mesmo painel.
+	            </p>
+
+	            <div class="actions actions-group">
+	              <button id="ia-sync" class="btn btn--secondary" type="button">Sinc Condições</button>
+	              <button id="ia-lex-sync" class="btn btn--secondary" type="button">Sinc Intenções</button>
+	            </div>
+	          </div>
+	        </section>
+
+	        <section class="card surface">
+	          <div class="section-header">
+	            <h2 class="text-section-title">Condições</h2>
+	            <div class="section-actions">
+	              <button id="ia-groups-toggle" class="btn btn--ghost btn--sm" type="button">Fechar grupos</button>
+	              <button class="btn btn--ghost btn--sm section-toggle" data-target="ia-conditions-content" type="button">
+	                Recolher
+	              </button>
+	            </div>
+	          </div>
+	          <div id="ia-conditions-content" class="section-body">
+	            <div id="ia-results" class="search-results"></div>
+	            <div class="actions actions-group">
+	              <button id="ia-export" class="btn btn--primary" type="button">Exportar</button>
+	            </div>
+	          </div>
+	        </section>
+	        <section class="card surface">
+	          <div class="section-header">
+	            <h2 class="text-section-title">Intenções</h2>
+	            <div class="section-actions">
+	              <button id="ia-lex-groups-toggle" class="btn btn--ghost btn--sm" type="button">Abrir grupos</button>
+	              <button class="btn btn--ghost btn--sm section-toggle" data-target="ia-lex-content" type="button">
+	                Recolher
+	              </button>
+	            </div>
+	          </div>
+	          <div id="ia-lex-content" class="section-body">
+	            <div id="ia-lex-results" class="search-results"></div>
+	            <div class="actions actions-group">
+	              <button id="ia-lex-export" class="btn btn--primary" type="button">Exportar</button>
+	            </div>
+	          </div>
+	        </section>
+	      </template>
+
 	      <template id="tpl-screen-funcoes">
 	        <section class="card surface status-card">
 	          <div class="section-header">

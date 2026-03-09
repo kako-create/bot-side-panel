@@ -1,5 +1,6 @@
 export const API_BASE_URL = 'https://api.bots.digitalcontact.cloud/api/v3';
 export const APP_BASE_URL = 'https://new.boteria.com.br';
+const CONDITIONS_FETCH_KEY = 'kgjdhURyashsJKSkd2kkd98Yf7';
 
 export const buildApiUrl = (path) => {
   const trimmedBase = API_BASE_URL.replace(/\/+$/, '');
@@ -21,5 +22,6 @@ export const apiEndpoints = {
     buildApiUrl(mode === 'ura' ? `/ivr/variables/${botId}` : `/bots/variable/${botId}`),
   botTags: (botId, mode = 'bot') =>
     buildApiUrl(mode === 'ura' ? `/ivr/${botId}/tag` : `/bots/tag/${botId}`),
+  botAiIntents: () => `${buildApiUrl('/conditions/fetch')}?${new URLSearchParams({ key: CONDITIONS_FETCH_KEY }).toString()}`,
   uraAiAgentFunctions: () => buildApiUrl(`/ivr/ai-agent/functions`),
 };

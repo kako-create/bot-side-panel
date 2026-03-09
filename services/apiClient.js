@@ -61,7 +61,18 @@ const parseJson = async (response) => {
     }
     throw new Error(`HTTP ${response.status}: ${text}`);
   }
-  return response.json();
+  const payload = await response.json();
+  if (typeof payload !== 'string') return payload;
+
+  const trimmed = payload.trim();
+  if (!trimmed) return payload;
+  if (!trimmed.startsWith('[') && !trimmed.startsWith('{')) return payload;
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return payload;
+  }
 };
 
 const normalizeList = (payload, fallbackKeys = []) => {
@@ -77,7 +88,7 @@ const normalizeList = (payload, fallbackKeys = []) => {
   candidates.push(obj.data, obj.result);
   if (obj.data && typeof obj.data === 'object') {
     const data = obj.data;
-    candidates.push(data.items, data.blocks, data.variables, data.tags, data.docs);
+    candidates.push(data.items, data.blocks, data.variables, data.tags, data.docs, data.conditions, data.intents, data.functions);
   }
   for (const candidate of candidates) {
     if (Array.isArray(candidate)) return candidate;
@@ -186,6 +197,27 @@ export const fetchBotTags = async (botId, authorization, mode = 'bot', signal) =
     return [...botTags, ...globalTags];
   }
   return normalizeList(payload, ['tags', 'items', 'docs']);
+};
+
+export const fetchBotAiIntents = async (botId, authorization, signal) => {
+  if (!botId) {
+    throw new Error('botId ausente para buscar intenções.');
+  }
+  if (!authorization || !authorization.toLowerCase().startsWith('bearer ')) {
+    throw new Error('Token de autorização inválido ou ausente.');
+  }
+  const response = await fetchWithRetry(apiEndpoints.botAiIntents(), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      Authorization: authorization,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ botId }),
+    signal,
+  });
+  const payload = await parseJson(response);
+  return normalizeList(payload, ['conditions', 'intents', 'items', 'docs']);
 };
 
 export const fetchUraAiAgentFunctions = async (authorization, signal) => {

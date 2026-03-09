@@ -67,7 +67,9 @@ const getBotBytes = (meta) =>
   Number(meta?.summaryBytes ?? 0) +
   Number(meta?.fullBytes ?? 0) +
   Number(meta?.variablesBytes ?? 0) +
-  Number(meta?.tagsBytes ?? 0);
+  Number(meta?.tagsBytes ?? 0) +
+  Number(meta?.intentsBytes ?? 0) +
+  Number(meta?.lexIntentsBytes ?? 0);
 
 const sortBots = (bots) => {
   const list = Array.isArray(bots) ? bots.slice() : [];
@@ -194,6 +196,8 @@ const buildBotRow = (bot) => {
     `Completo: ${bot.fullCount ?? 0} | ` +
     `Variáveis: ${bot.variablesCount ?? 0} | ` +
     `TAGs: ${bot.tagsCount ?? 0} | ` +
+    `Condições: ${bot.intentsCount ?? 0} | ` +
+    `Intenções: ${bot.lexIntentsCount ?? 0} | ` +
     `Cache: ${formatBytes(sizeBytes)}`;
   info.appendChild(stats);
 
@@ -203,7 +207,9 @@ const buildBotRow = (bot) => {
     `Resumo: ${formatDate(bot.lastSummarySyncAt)} | ` +
     `Completo: ${formatDate(bot.lastItemsSyncAt)} | ` +
     `Variáveis: ${formatDate(bot.lastVariablesSyncAt)} | ` +
-    `TAGs: ${formatDate(bot.lastTagsSyncAt)}`;
+    `TAGs: ${formatDate(bot.lastTagsSyncAt)} | ` +
+    `Condições: ${formatDate(bot.lastIntentsSyncAt)} | ` +
+    `Intenções: ${formatDate(bot.lastLexIntentsSyncAt)}`;
   info.appendChild(dates);
 
   const actions = document.createElement('div');

@@ -8,6 +8,16 @@
     "bots.digitalcontact.cloud",
   ];
   const API_HOST = "api.bots.digitalcontact.cloud";
+  const AI_INTENTS_URL = "https://api.bots.digitalcontact.cloud/api/v3/conditions/fetch?key=kgjdhURyashsJKSkd2kkd98Yf7";
+  const LEX_TOKEN = "ENT1CX7YBV";
+  const LEX_INTENTS_URL = `https://ia.bots.digitalcontact.cloud/lex/intent?token=${encodeURIComponent(LEX_TOKEN)}`;
+  const buildLexSamplesUrl = (intentName, token = LEX_TOKEN) =>
+    `https://ia.bots.digitalcontact.cloud/lex/samples?token=${encodeURIComponent(token)}&intent=${encodeURIComponent(intentName)}`;
+  const PAGE_FETCH_AI_INTENTS = "BOT_SP_PAGE_FETCH_AI_INTENTS";
+  const PAGE_FETCH_AI_INTENTS_RESULT = "BOT_SP_PAGE_FETCH_AI_INTENTS_RESULT";
+  const PAGE_FETCH_LEX_INTENTS = "BOT_SP_PAGE_FETCH_LEX_INTENTS";
+  const PAGE_FETCH_LEX_INTENTS_RESULT = "BOT_SP_PAGE_FETCH_LEX_INTENTS_RESULT";
+  let latestAuthorization = null;
   const isAllowedUrl = (url) => {
     try {
       const parsed = new URL(String(url), location.origin);
@@ -157,6 +167,7 @@
   };
 
   function postAuth(token) {
+    latestAuthorization = token;
     window.postMessage({ type: "BOT_SP_AUTH", token }, "*");
   }
 
@@ -203,6 +214,7 @@
         /^bearer\s+/i.test(String(value)) &&
         isAllowedUrl(this.__botSpUrl)
       ) {
+        latestAuthorization = String(value);
         postAuth(String(value));
       }
     } catch {}
@@ -279,6 +291,168 @@
   }
 
   const origFetch = window.fetch;
+
+  const normalizeIntentPayload = (payload) => {
+    if (typeof payload !== "string") return payload;
+    const trimmed = payload.trim();
+    if (!trimmed) return payload;
+    if (!trimmed.startsWith("[") && !trimmed.startsWith("{")) return payload;
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return payload;
+    }
+  };
+
+  const runWithConcurrency = async (items, concurrency, worker) => {
+    const results = new Array(items.length);
+    let cursor = 0;
+    const size = Math.max(1, Number(concurrency) || 1);
+    const runners = new Array(Math.min(size, items.length || 1)).fill(0).map(async () => {
+      while (cursor < items.length) {
+        const index = cursor;
+        cursor += 1;
+        results[index] = await worker(items[index], index);
+      }
+    });
+    await Promise.all(runners);
+    return results;
+  };
+
+  const normalizeLexIntentList = (payload) => {
+    const intents = Array.isArray(payload?.intents)
+      ? payload.intents
+      : Array.isArray(payload?.body?.intents)
+        ? payload.body.intents
+        : [];
+    const token = String(payload?.token ?? payload?.body?.token ?? LEX_TOKEN).trim() || LEX_TOKEN;
+    return { intents, token };
+  };
+
+  const normalizeLexSamples = (payload) =>
+    Array.isArray(payload?.body?.data)
+      ? payload.body.data
+      : Array.isArray(payload?.data)
+        ? payload.data
+        : [];
+
+  window.addEventListener("message", async (ev) => {
+    if (ev.source !== window) return;
+    const data = ev.data;
+    if (!data || typeof data !== "object") return;
+    if (data.type !== PAGE_FETCH_AI_INTENTS) return;
+
+    const requestId = String(data.requestId ?? "").trim();
+    const botId = String(data.botId ?? "").trim();
+    const authorization = String(data.authorization ?? latestAuthorization ?? "").trim();
+
+    if (!requestId) return;
+    if (!botId) {
+      window.postMessage({ type: PAGE_FETCH_AI_INTENTS_RESULT, requestId, ok: false, error: "botId ausente." }, "*");
+      return;
+    }
+    if (!authorization || !/^bearer\s+/i.test(authorization)) {
+      window.postMessage(
+        { type: PAGE_FETCH_AI_INTENTS_RESULT, requestId, ok: false, error: "Token de autorização ausente." },
+        "*",
+      );
+      return;
+    }
+
+    try {
+      const response = await origFetch(AI_INTENTS_URL, {
+        method: "POST",
+        headers: {
+          Accept: "application/json, text/plain, */*",
+          Authorization: authorization,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ botId }),
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${text}`);
+      }
+
+      let payload = normalizeIntentPayload(safeJsonParse(text) ?? text);
+      payload = normalizeIntentPayload(payload);
+      const items = Array.isArray(payload) ? payload : [];
+      window.postMessage({ type: PAGE_FETCH_AI_INTENTS_RESULT, requestId, ok: true, items }, "*");
+    } catch (error) {
+      window.postMessage(
+        {
+          type: PAGE_FETCH_AI_INTENTS_RESULT,
+          requestId,
+          ok: false,
+          error: String(error?.message ?? error),
+        },
+        "*",
+      );
+    }
+  });
+
+  window.addEventListener("message", async (ev) => {
+    if (ev.source !== window) return;
+    const data = ev.data;
+    if (!data || typeof data !== "object") return;
+    if (data.type !== PAGE_FETCH_LEX_INTENTS) return;
+
+    const requestId = String(data.requestId ?? "").trim();
+    if (!requestId) return;
+
+    try {
+      const intentsResponse = await origFetch(LEX_INTENTS_URL, {
+        method: "GET",
+        headers: {
+          Accept: "application/json, text/plain, */*",
+          Authorization: "Bearer null",
+        },
+      });
+      const intentsText = await intentsResponse.text();
+      if (!intentsResponse.ok) {
+        throw new Error(`HTTP ${intentsResponse.status}: ${intentsText}`);
+      }
+
+      const intentsPayload = safeJsonParse(intentsText);
+      const { intents, token } = normalizeLexIntentList(intentsPayload);
+
+      const items = await runWithConcurrency(intents, 6, async (intentItem) => {
+        const intentName = String(intentItem?.name ?? "").trim();
+        if (!intentName) return { ...intentItem, token, samples: [] };
+
+        const samplesResponse = await origFetch(buildLexSamplesUrl(intentName, token), {
+          method: "GET",
+          headers: {
+            Accept: "application/json, text/plain, */*",
+            Authorization: "Bearer null",
+          },
+        });
+        const samplesText = await samplesResponse.text();
+        if (!samplesResponse.ok) {
+          throw new Error(`Falha ao buscar samples de "${intentName}": HTTP ${samplesResponse.status}: ${samplesText}`);
+        }
+        const samplesPayload = safeJsonParse(samplesText);
+        return {
+          ...intentItem,
+          token,
+          samples: normalizeLexSamples(samplesPayload),
+        };
+      });
+
+      window.postMessage({ type: PAGE_FETCH_LEX_INTENTS_RESULT, requestId, ok: true, items }, "*");
+    } catch (error) {
+      window.postMessage(
+        {
+          type: PAGE_FETCH_LEX_INTENTS_RESULT,
+          requestId,
+          ok: false,
+          error: String(error?.message ?? error),
+        },
+        "*",
+      );
+    }
+  });
+
   window.fetch = async (...args) => {
     const input = args[0];
     const init = args[1];
@@ -292,6 +466,7 @@
     try {
       const auth = getAuthFromHeaders(init?.headers) || getAuthFromHeaders(input?.headers);
       if (auth && /^bearer\s+/i.test(String(auth)) && isAllowedUrl(url)) {
+        latestAuthorization = String(auth);
         postAuth(String(auth));
       }
     } catch {}

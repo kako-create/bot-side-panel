@@ -1,7 +1,7 @@
 import { normalizeText } from '../shared/utils.js';
 
 const DB_NAME = 'bot_side_panel_db_v1';
-const DB_VERSION = 4;
+const DB_VERSION = 6;
 
 const STORE_META = 'meta';
 const STORE_GROUPS = 'groups';
@@ -9,6 +9,8 @@ const STORE_SUMMARY = 'summary_items';
 const STORE_FULL = 'full_items';
 const STORE_VARIABLES = 'bot_variables';
 const STORE_TAGS = 'bot_tags';
+const STORE_INTENTS = 'bot_intents';
+const STORE_LEX_INTENTS = 'bot_lex_intents';
 const STORE_DEBUG = 'debug_network_logs';
 
 let dbPromise = null;
@@ -57,6 +59,17 @@ const openDb = () => {
         }
         if (!db.objectStoreNames.contains(STORE_TAGS)) {
           const store = db.createObjectStore(STORE_TAGS, { keyPath: ['botId', 'tagId'] });
+          store.createIndex('by_bot', 'botId', { unique: false });
+          store.createIndex('by_bot_label', ['botId', 'labelFold'], { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_INTENTS)) {
+          const store = db.createObjectStore(STORE_INTENTS, { keyPath: ['botId', 'intentId'] });
+          store.createIndex('by_bot', 'botId', { unique: false });
+          store.createIndex('by_bot_group', ['botId', 'groupFold'], { unique: false });
+          store.createIndex('by_bot_label', ['botId', 'labelFold'], { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_LEX_INTENTS)) {
+          const store = db.createObjectStore(STORE_LEX_INTENTS, { keyPath: ['botId', 'intentId'] });
           store.createIndex('by_bot', 'botId', { unique: false });
           store.createIndex('by_bot_label', ['botId', 'labelFold'], { unique: false });
         }
@@ -174,6 +187,20 @@ export const saveBotTags = async (botId, tags) =>
     }
   });
 
+export const saveBotIntents = async (botId, intents) =>
+  withStore(STORE_INTENTS, 'readwrite', (store) => {
+    for (const intent of intents) {
+      store.put({ ...intent, botId });
+    }
+  });
+
+export const saveBotLexIntents = async (botId, intents) =>
+  withStore(STORE_LEX_INTENTS, 'readwrite', (store) => {
+    for (const intent of intents) {
+      store.put({ ...intent, botId });
+    }
+  });
+
 export const getGroupsByBot = async (botId) =>
   withStore(STORE_GROUPS, 'readonly', (store) => {
     const index = store.index('by_bot');
@@ -188,6 +215,18 @@ export const listBotVariables = async (botId) =>
 
 export const listBotTags = async (botId) =>
   withStore(STORE_TAGS, 'readonly', (store) => {
+    const index = store.index('by_bot');
+    return cursorToArray(index.openCursor(IDBKeyRange.only(botId)));
+  });
+
+export const listBotIntents = async (botId) =>
+  withStore(STORE_INTENTS, 'readonly', (store) => {
+    const index = store.index('by_bot');
+    return cursorToArray(index.openCursor(IDBKeyRange.only(botId)));
+  });
+
+export const listBotLexIntents = async (botId) =>
+  withStore(STORE_LEX_INTENTS, 'readonly', (store) => {
     const index = store.index('by_bot');
     return cursorToArray(index.openCursor(IDBKeyRange.only(botId)));
   });
@@ -360,6 +399,16 @@ export const clearTagsData = async (botId) => {
   await deleteByIndex(db, STORE_TAGS, 'by_bot', botId);
 };
 
+export const clearIntentsData = async (botId) => {
+  const db = await openDb();
+  await deleteByIndex(db, STORE_INTENTS, 'by_bot', botId);
+};
+
+export const clearLexIntentsData = async (botId) => {
+  const db = await openDb();
+  await deleteByIndex(db, STORE_LEX_INTENTS, 'by_bot', botId);
+};
+
 export const clearBotData = async (botId) => {
   const db = await openDb();
   await deleteByIndex(db, STORE_GROUPS, 'by_bot', botId);
@@ -367,6 +416,8 @@ export const clearBotData = async (botId) => {
   await deleteByIndex(db, STORE_FULL, 'by_bot', botId);
   await deleteByIndex(db, STORE_VARIABLES, 'by_bot', botId);
   await deleteByIndex(db, STORE_TAGS, 'by_bot', botId);
+  await deleteByIndex(db, STORE_INTENTS, 'by_bot', botId);
+  await deleteByIndex(db, STORE_LEX_INTENTS, 'by_bot', botId);
   await withStore(STORE_META, 'readwrite', (store) => store.delete(botId));
 };
 
@@ -506,6 +557,79 @@ export const buildTagRecord = (tag) => {
   };
 };
 
+export const buildIntentRecord = (intent) => {
+  const item = intent && typeof intent === 'object' ? intent : { value: intent };
+  const labelRaw =
+    item.intent ??
+    item.name ??
+    item.label ??
+    item.title ??
+    item.value ??
+    item._id ??
+    item.id ??
+    '';
+  const label = String(labelRaw ?? '').trim() || 'Sem intenção';
+  const rawId = item._id ?? item.id ?? null;
+  const destinationId = String(item.destination ?? item.destinationId ?? '').trim();
+  const title = String(item.title ?? item.destinationTitle ?? '').trim();
+  const type = String(item.type ?? '').trim() || 'Sem tipo';
+  const groupLabel = title || destinationId || 'Sem destino';
+  const groupKey = `${type}:${groupLabel}`;
+  const baseId = rawId ? String(rawId) : `${groupKey}:${label}`;
+  const confidence = Number(item.confidence);
+  const entity = String(item.entity ?? '').trim();
+  const when = item.when ? String(item.when) : null;
+
+  return {
+    intentId: baseId || crypto.randomUUID(),
+    label,
+    labelFold: normalizeText(label),
+    group: groupKey,
+    groupLabel,
+    groupFold: normalizeText(groupLabel),
+    type,
+    typeFold: normalizeText(type),
+    destinationId: destinationId || null,
+    confidence: Number.isFinite(confidence) ? confidence : null,
+    active: item.active == null ? null : Boolean(item.active),
+    entity: entity || null,
+    when,
+    payload: item ?? null,
+  };
+};
+
+export const buildLexIntentRecord = (intent) => {
+  const item = intent && typeof intent === 'object' ? intent : { value: intent };
+  const label = String(item.name ?? item.intent ?? item.label ?? item.value ?? item.id ?? '').trim() || 'Sem nome';
+  const rawSamples = Array.isArray(item.samples) ? item.samples : [];
+  const samples = rawSamples
+    .map((sample) => {
+      if (sample && typeof sample === 'object') {
+        const text = String(sample.text ?? sample.value ?? '').trim();
+        return {
+          text,
+          entities: Array.isArray(sample.entities) ? sample.entities : [],
+          traits: Array.isArray(sample.traits) ? sample.traits : [],
+          payload: sample,
+        };
+      }
+      const text = String(sample ?? '').trim();
+      return { text, entities: [], traits: [], payload: sample };
+    })
+    .filter((sample) => sample.text);
+
+  return {
+    intentId: String(item.id ?? item.intentId ?? label),
+    label,
+    labelFold: normalizeText(label),
+    qtdSamples: item.qtdSamples == null ? null : String(item.qtdSamples),
+    samples,
+    samplesCount: samples.length,
+    token: item.token == null ? null : String(item.token),
+    payload: item ?? null,
+  };
+};
+
 export const buildGroupRecord = (group, { itemsCount, typeCounts } = {}) => {
   const title = group?.title ?? '';
   return {
@@ -525,5 +649,7 @@ export const STORE_NAMES = {
   FULL: STORE_FULL,
   VARIABLES: STORE_VARIABLES,
   TAGS: STORE_TAGS,
+  INTENTS: STORE_INTENTS,
+  LEX_INTENTS: STORE_LEX_INTENTS,
   DEBUG: STORE_DEBUG,
 };

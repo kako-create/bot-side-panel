@@ -1,6 +1,12 @@
 (() => {
   if (window.__BOT_SIDE_PANEL_CONTENT__) return;
   window.__BOT_SIDE_PANEL_CONTENT__ = true;
+  const FETCH_AI_INTENTS_PAGE = "BOT_SP_FETCH_AI_INTENTS_PAGE";
+  const FETCH_LEX_INTENTS_PAGE = "BOT_SP_FETCH_LEX_INTENTS_PAGE";
+  const PAGE_FETCH_AI_INTENTS = "BOT_SP_PAGE_FETCH_AI_INTENTS";
+  const PAGE_FETCH_AI_INTENTS_RESULT = "BOT_SP_PAGE_FETCH_AI_INTENTS_RESULT";
+  const PAGE_FETCH_LEX_INTENTS = "BOT_SP_PAGE_FETCH_LEX_INTENTS";
+  const PAGE_FETCH_LEX_INTENTS_RESULT = "BOT_SP_PAGE_FETCH_LEX_INTENTS_RESULT";
 
   // A flag de debug e gerenciada no background da extensao e espelhada no DOM da pagina
   // para que o `inject.js` (rodando no contexto da pagina) decida se deve emitir eventos de debug.
@@ -26,6 +32,60 @@
     } catch {
       // ignorar
     }
+  }
+
+  function requestPageData({ requestType, resultType, payload, timeoutMs, timeoutMessage }) {
+    return new Promise((resolve) => {
+      const requestId = `${Date.now()}:${Math.random().toString(36).slice(2)}`;
+      let settled = false;
+
+      const cleanup = () => {
+        window.removeEventListener("message", onMessage);
+        clearTimeout(timeoutId);
+      };
+
+      const done = (payload) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(payload);
+      };
+
+      const onMessage = (ev) => {
+        if (ev.source !== window) return;
+        const data = ev.data;
+        if (!data || typeof data !== "object") return;
+        if (data.type !== resultType || data.requestId !== requestId) return;
+        done(data);
+      };
+
+      const timeoutId = setTimeout(() => {
+        done({ ok: false, error: timeoutMessage });
+      }, timeoutMs);
+
+      window.addEventListener("message", onMessage);
+      window.postMessage({ type: requestType, requestId, ...payload }, "*");
+    });
+  }
+
+  function requestAiIntentsFromPage(botId, authorization) {
+    return requestPageData({
+      requestType: PAGE_FETCH_AI_INTENTS,
+      resultType: PAGE_FETCH_AI_INTENTS_RESULT,
+      payload: { botId, authorization },
+      timeoutMs: 20000,
+      timeoutMessage: "Tempo limite ao buscar condições na página.",
+    });
+  }
+
+  function requestLexIntentsFromPage() {
+    return requestPageData({
+      requestType: PAGE_FETCH_LEX_INTENTS,
+      resultType: PAGE_FETCH_LEX_INTENTS_RESULT,
+      payload: {},
+      timeoutMs: 180000,
+      timeoutMessage: "Tempo limite ao buscar intenções na página.",
+    });
   }
 
   let lastHref = null;
@@ -103,6 +163,18 @@
     if (msg?.type === "BOT_SP_REQUEST_CONTEXT") {
       reportBotId();
       sendResponse({ ok: true, url: location.href });
+    }
+    if (msg?.type === FETCH_AI_INTENTS_PAGE) {
+      requestAiIntentsFromPage(msg?.botId, msg?.authorization).then((result) => {
+        sendResponse(result);
+      });
+      return true;
+    }
+    if (msg?.type === FETCH_LEX_INTENTS_PAGE) {
+      requestLexIntentsFromPage().then((result) => {
+        sendResponse(result);
+      });
+      return true;
     }
   });
 })();

@@ -8,6 +8,8 @@ import { listMetas, clearBotData, getMeta, saveMeta, addDebugLog, listDebugLogs,
 import { startSync, getSyncState, cancelSync } from '../services/syncManager.js';
 import { syncBotVariables } from '../services/variablesSync.js';
 import { syncBotTags } from '../services/tagsSync.js';
+import { syncBotIntents } from '../services/intentsSync.js';
+import { syncLexIntents } from '../services/lexIntentsSync.js';
 import { fetchUraAiAgentFunctions } from '../services/apiClient.js';
 
 const CONTEXT_KEY = 'bot_sp_context_v1';
@@ -162,6 +164,64 @@ const requestContextFromTab = (tabId) =>
       });
     } catch {
       resolve(null);
+    }
+  });
+
+const requestAiIntentsFromTab = (tabId, botId, authorization) =>
+  new Promise((resolve, reject) => {
+    const normalizedTabId = toTabId(tabId);
+    if (normalizedTabId == null) {
+      reject(new Error('Aba ativa inválida para buscar intenções.'));
+      return;
+    }
+    try {
+      chrome.tabs.sendMessage(
+        normalizedTabId,
+        { type: MessageType.FETCH_AI_INTENTS_PAGE, botId, authorization },
+        (response) => {
+          const err = chrome.runtime.lastError;
+          if (err) {
+            reject(new Error(err.message || 'Falha ao acessar o builder.'));
+            return;
+          }
+          if (!response?.ok) {
+            reject(new Error(response?.error?.message ?? response?.error ?? 'Falha ao buscar intenções na página.'));
+            return;
+          }
+          resolve(Array.isArray(response?.items) ? response.items : []);
+        },
+      );
+    } catch (error) {
+      reject(error);
+    }
+  });
+
+const requestLexIntentsFromTab = (tabId) =>
+  new Promise((resolve, reject) => {
+    const normalizedTabId = toTabId(tabId);
+    if (normalizedTabId == null) {
+      reject(new Error('Aba ativa inválida para buscar intenções.'));
+      return;
+    }
+    try {
+      chrome.tabs.sendMessage(
+        normalizedTabId,
+        { type: MessageType.FETCH_LEX_INTENTS_PAGE },
+        (response) => {
+          const err = chrome.runtime.lastError;
+          if (err) {
+            reject(new Error(err.message || 'Falha ao acessar o builder.'));
+            return;
+          }
+          if (!response?.ok) {
+            reject(new Error(response?.error?.message ?? response?.error ?? 'Falha ao buscar intenções na página.'));
+            return;
+          }
+          resolve(Array.isArray(response?.items) ? response.items : []);
+        },
+      );
+    } catch (error) {
+      reject(error);
     }
   });
 
@@ -902,6 +962,75 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               ),
             ),
           );
+      });
+      return true;
+    }
+    case MessageType.SYNC_AI_INTENTS: {
+      initPromise.then(async () => {
+        const active = await resolveContextForActiveTab({ refreshFromContent: true });
+        const requestedBotId = message?.botId ?? active.context?.botId ?? contextState.botId;
+        if (!requestedBotId || !authSessionState.authorization) {
+          respond(respondErr(ErrorCode.NOT_READY, 'botId ou token ausente.'));
+          return;
+        }
+
+        const syncedMode = (await getSyncedMode(requestedBotId)) ?? normalizeMode(active.context?.mode);
+        if (syncedMode !== MODE_BOT) {
+          respond(respondErr(ErrorCode.INVALID_REQUEST, 'Disponível apenas no mode BOT.'));
+          return;
+        }
+
+        try {
+          const items = await requestAiIntentsFromTab(active.tabId, requestedBotId, authSessionState.authorization);
+          const data = await syncBotIntents({
+            botId: requestedBotId,
+            authorization: authSessionState.authorization,
+            items,
+          });
+          respond(respondOk(data));
+        } catch (error) {
+          respond(
+            respondErr(
+              ErrorCode.INTERNAL,
+              'Falha ao sincronizar intenções.',
+              String(error?.message ?? error),
+            ),
+          );
+        }
+      });
+      return true;
+    }
+    case MessageType.SYNC_LEX_INTENTS: {
+      initPromise.then(async () => {
+        const active = await resolveContextForActiveTab({ refreshFromContent: true });
+        const requestedBotId = message?.botId ?? active.context?.botId ?? contextState.botId;
+        if (!requestedBotId) {
+          respond(respondErr(ErrorCode.NOT_READY, 'botId ausente.'));
+          return;
+        }
+
+        const syncedMode = (await getSyncedMode(requestedBotId)) ?? normalizeMode(active.context?.mode);
+        if (syncedMode !== MODE_BOT) {
+          respond(respondErr(ErrorCode.INVALID_REQUEST, 'Disponível apenas no mode BOT.'));
+          return;
+        }
+
+        try {
+          const items = await requestLexIntentsFromTab(active.tabId);
+          const data = await syncLexIntents({
+            botId: requestedBotId,
+            items,
+          });
+          respond(respondOk(data));
+        } catch (error) {
+          respond(
+            respondErr(
+              ErrorCode.INTERNAL,
+              'Falha ao sincronizar intenções.',
+              String(error?.message ?? error),
+            ),
+          );
+        }
       });
       return true;
     }
