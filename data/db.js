@@ -1,7 +1,7 @@
 import { normalizeText } from '../shared/utils.js';
 
 const DB_NAME = 'bot_side_panel_db_v1';
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 
 const STORE_META = 'meta';
 const STORE_GROUPS = 'groups';
@@ -12,6 +12,11 @@ const STORE_TAGS = 'bot_tags';
 const STORE_INTENTS = 'bot_intents';
 const STORE_LEX_INTENTS = 'bot_lex_intents';
 const STORE_DEBUG = 'debug_network_logs';
+const STORE_TECH_REVIEW = 'tech_review_snapshots';
+
+const TECH_REVIEW_META_RECORD_KEY = '__meta__';
+const TECH_REVIEW_KIND_META = 'meta';
+const TECH_REVIEW_KIND_ITEM = 'item';
 
 let dbPromise = null;
 
@@ -78,6 +83,15 @@ const openDb = () => {
           store.createIndex('by_created_at', 'createdAt', { unique: false });
           store.createIndex('by_kind', 'kind', { unique: false });
           store.createIndex('by_url', 'url', { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_TECH_REVIEW)) {
+          const store = db.createObjectStore(STORE_TECH_REVIEW, {
+            keyPath: ['botId', 'snapshotId', 'recordKey'],
+          });
+          store.createIndex('by_bot', 'botId', { unique: false });
+          store.createIndex('by_bot_kind', ['botId', 'kind'], { unique: false });
+          store.createIndex('by_bot_snapshot', ['botId', 'snapshotId'], { unique: false });
+          store.createIndex('by_bot_snapshot_kind', ['botId', 'snapshotId', 'kind'], { unique: false });
         }
       };
       request.onsuccess = () => resolve(request.result);
@@ -409,6 +423,112 @@ export const clearLexIntentsData = async (botId) => {
   await deleteByIndex(db, STORE_LEX_INTENTS, 'by_bot', botId);
 };
 
+const stripTechReviewRecord = (record) => {
+  if (!record || typeof record !== 'object') return record;
+  const { recordKey, kind, ...rest } = record;
+  return rest;
+};
+
+export const saveTechReviewSnapshot = async (
+  botId,
+  { snapshotId = crypto.randomUUID(), meta = {}, items = [] } = {},
+) => {
+  const resolvedBotId = String(botId ?? '').trim();
+  const resolvedSnapshotId = String(snapshotId ?? '').trim() || crypto.randomUUID();
+  if (!resolvedBotId) throw new Error('botId ausente para salvar snapshot técnico.');
+
+  const createdAt = meta?.createdAt ? String(meta.createdAt) : new Date().toISOString();
+  const itemsCount = Number(meta?.itemsCount);
+  const bytes = Number(meta?.bytes);
+  const blocksCount = Number(meta?.blocksCount);
+  const variablesCount = Number(meta?.variablesCount);
+  const tagsCount = Number(meta?.tagsCount);
+
+  return withStore(STORE_TECH_REVIEW, 'readwrite', (store) => {
+    store.put({
+      botId: resolvedBotId,
+      snapshotId: resolvedSnapshotId,
+      recordKey: TECH_REVIEW_META_RECORD_KEY,
+      kind: TECH_REVIEW_KIND_META,
+      createdAt,
+      botTitle: meta?.botTitle ? String(meta.botTitle) : null,
+      mode: meta?.mode ? String(meta.mode) : null,
+      label: meta?.label ? String(meta.label) : null,
+      itemsCount: Number.isFinite(itemsCount) ? itemsCount : (Array.isArray(items) ? items.length : 0),
+      bytes: Number.isFinite(bytes) ? bytes : 0,
+      blocksCount: Number.isFinite(blocksCount) ? blocksCount : null,
+      variablesCount: Number.isFinite(variablesCount) ? variablesCount : null,
+      tagsCount: Number.isFinite(tagsCount) ? tagsCount : null,
+      sourceLastItemsSyncAt: meta?.sourceLastItemsSyncAt ? String(meta.sourceLastItemsSyncAt) : null,
+      sourceLastSummarySyncAt: meta?.sourceLastSummarySyncAt ? String(meta.sourceLastSummarySyncAt) : null,
+    });
+
+    (Array.isArray(items) ? items : []).forEach((item, index) => {
+      const baseKey = String(item?.itemId ?? '').trim() || crypto.randomUUID();
+      store.put({
+        ...item,
+        botId: resolvedBotId,
+        snapshotId: resolvedSnapshotId,
+        recordKey: `item:${baseKey}:${index}`,
+        kind: TECH_REVIEW_KIND_ITEM,
+      });
+    });
+  });
+};
+
+export const listTechReviewSnapshots = async (botId) => {
+  const resolvedBotId = String(botId ?? '').trim();
+  if (!resolvedBotId) return [];
+  return withStore(STORE_TECH_REVIEW, 'readonly', (store) => {
+    const index = store.index('by_bot_kind');
+    return cursorToArray(index.openCursor(IDBKeyRange.only([resolvedBotId, TECH_REVIEW_KIND_META]))).then((rows) =>
+      rows
+        .map((row) => stripTechReviewRecord(row))
+        .sort((a, b) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime()),
+    );
+  });
+};
+
+export const getTechReviewSnapshotMeta = async (botId, snapshotId) => {
+  const resolvedBotId = String(botId ?? '').trim();
+  const resolvedSnapshotId = String(snapshotId ?? '').trim();
+  if (!resolvedBotId || !resolvedSnapshotId) return null;
+  return withStore(STORE_TECH_REVIEW, 'readonly', (store) =>
+    new Promise((resolve, reject) => {
+      const req = store.get([resolvedBotId, resolvedSnapshotId, TECH_REVIEW_META_RECORD_KEY]);
+      req.onsuccess = () => resolve(stripTechReviewRecord(req.result || null));
+      req.onerror = () => reject(req.error || new Error('IDB_GET_ERROR'));
+    }),
+  );
+};
+
+export const listTechReviewSnapshotItems = async (botId, snapshotId) => {
+  const resolvedBotId = String(botId ?? '').trim();
+  const resolvedSnapshotId = String(snapshotId ?? '').trim();
+  if (!resolvedBotId || !resolvedSnapshotId) return [];
+  return withStore(STORE_TECH_REVIEW, 'readonly', (store) => {
+    const index = store.index('by_bot_snapshot_kind');
+    return cursorToArray(
+      index.openCursor(IDBKeyRange.only([resolvedBotId, resolvedSnapshotId, TECH_REVIEW_KIND_ITEM])),
+    ).then((rows) => rows.map((row) => stripTechReviewRecord(row)));
+  });
+};
+
+export const clearTechReviewSnapshot = async (botId, snapshotId) => {
+  const resolvedBotId = String(botId ?? '').trim();
+  const resolvedSnapshotId = String(snapshotId ?? '').trim();
+  if (!resolvedBotId || !resolvedSnapshotId) return;
+  const db = await openDb();
+  await deleteByIndex(db, STORE_TECH_REVIEW, 'by_bot_snapshot', [resolvedBotId, resolvedSnapshotId]);
+};
+
+export const clearTechReviewSnapshotsByBot = async (botId) => {
+  const resolvedBotId = String(botId ?? '').trim();
+  if (!resolvedBotId) return;
+  const db = await openDb();
+  await deleteByIndex(db, STORE_TECH_REVIEW, 'by_bot', resolvedBotId);
+};
+
 export const clearBotData = async (botId) => {
   const db = await openDb();
   await deleteByIndex(db, STORE_GROUPS, 'by_bot', botId);
@@ -418,6 +538,7 @@ export const clearBotData = async (botId) => {
   await deleteByIndex(db, STORE_TAGS, 'by_bot', botId);
   await deleteByIndex(db, STORE_INTENTS, 'by_bot', botId);
   await deleteByIndex(db, STORE_LEX_INTENTS, 'by_bot', botId);
+  await deleteByIndex(db, STORE_TECH_REVIEW, 'by_bot', botId);
   await withStore(STORE_META, 'readwrite', (store) => store.delete(botId));
 };
 
@@ -652,4 +773,5 @@ export const STORE_NAMES = {
   INTENTS: STORE_INTENTS,
   LEX_INTENTS: STORE_LEX_INTENTS,
   DEBUG: STORE_DEBUG,
+  TECH_REVIEW: STORE_TECH_REVIEW,
 };
