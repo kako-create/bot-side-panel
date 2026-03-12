@@ -2,7 +2,7 @@
 
 Extensão Chrome para apoio operacional em builders de BOT e URA, com foco em consulta, comparação e navegação rápida.
 
-Status deste documento: atualizado com o estado real do projeto em **13/02/2026**.
+Status deste documento: atualizado com o estado real do projeto em **12/03/2026**.
 
 ## Objetivo
 
@@ -12,6 +12,8 @@ Reduzir tempo de análise/manutenção de fluxos, oferecendo no side panel:
 - busca rápida e busca avançada em payload;
 - sincronização e análise de variáveis/TAGs;
 - comparação entre dois registros sincronizados;
+- review técnica por snapshots do mesmo BOT/URA;
+- exportação de relatórios em Excel (`.xlsx`);
 - abertura direta do bloco no builder.
 
 ## Escopo funcional atual
@@ -68,14 +70,40 @@ Reduzir tempo de análise/manutenção de fluxos, oferecendo no side panel:
   - grupos recolhíveis;
   - blocos alterados com detalhes de merge/diff por campo;
   - filtro por propriedade alterada;
-  - links para abrir bloco A/B no builder.
+- links para abrir bloco A/B no builder.
 - Ignora campos instáveis de comparação como `positionOnScreen` e `updatedAt`, além de IDs.
 
-### 7. Tela Armazenamento
+### 7. Tela Review Técnica
+
+- Menu separado da tela `Comparação`.
+- Permite criar snapshots imutáveis por BOT/URA, sempre vinculados ao mesmo `botId`.
+- Cada snapshot salva:
+  - blocos do full sync;
+  - variáveis;
+  - TAGs;
+  - metadata de data/hora, modo e volume em cache.
+- A comparação usa um `snapshot base` e permite:
+  - comparar contra a base atual;
+  - comparar contra outro snapshot do mesmo BOT/URA.
+- A saída mostra somente diferenças:
+  - `removido`;
+  - `alterado`;
+  - `incluido`.
+- A comparação é feita por ID do item dentro da mesma base.
+- A exportação em Excel gera:
+  - aba principal `Review Tecnica` com resumo dos itens diferentes;
+  - aba `API` apenas quando houver blocos de API alterados/incluídos com dados relevantes;
+  - aba `Script` apenas quando houver blocos de Script alterados/incluídos com mais de 1 linha útil.
+- O arquivo `.xlsx` usa hyperlinks internos entre a aba principal e as abas detalhadas (`API`/`Script`).
+
+### 8. Tela Armazenamento
 
 - Lista registros sincronizados, com métricas e datas.
 - Fixar/desfixar e remover registro.
 - Agrupamento por organização (empresa), com abrir/fechar grupos.
+- Exibe também um grupo separado de `Snapshots` abaixo de `Bots sincronizados`.
+- Permite remover snapshots individualmente.
+- O cálculo de cache total considera sincronizações do bot e snapshots técnicos.
 - Captura `fantasyName` por interceptação do endpoint:
   - `https://api.bots.digitalcontact.cloud/api/v3/companies/<orgId>`
 - Dados de organização ficam persistidos no `meta` do bot/ura.
@@ -89,15 +117,18 @@ Reduzir tempo de análise/manutenção de fluxos, oferecendo no side panel:
 - `services/`:
   - cliente de API e serviços de sincronização (summary/full/variáveis/TAGs).
 - `data/`:
-  - persistência local em IndexedDB (metas, grupos, itens, variáveis e TAGs).
+  - persistência local em IndexedDB (metas, grupos, itens, variáveis, TAGs e snapshots da review técnica).
 - `side_panel/screens/`:
-  - telas `consulta`, `variaveis`, `tags`, `comparacao`, `armazenamento`.
+  - telas principais `consulta`, `variaveis`, `tags`, `comparacao`, `reviewTecnica`, `armazenamento`.
+- `side_panel/vendor/`:
+  - dependências embarcadas no painel, incluindo `SheetJS` para exportação `.xlsx`.
 
 ## Limitações atuais
 
 - Projeto sem suíte automatizada de testes.
 - Cobertura de filtros específicos por tipo ainda evolutiva (BOT e URA).
 - Comparação executa em memória no momento da consulta (não persiste resultado de merge).
+- Snapshots antigos não recebem retroativamente novos campos capturados pela review técnica; nesses casos, é necessário criar um novo snapshot.
 - Sem pipeline formal de release/versionamento automatizado.
 
 ## Manifest por navegador
