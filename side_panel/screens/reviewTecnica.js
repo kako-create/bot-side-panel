@@ -21,6 +21,9 @@ const MODE_URA = 'ura';
 const REVIEW_KIND_BLOCK = 'block';
 const REVIEW_KIND_VARIABLE = 'variable';
 const REVIEW_KIND_TAG = 'tag';
+const REVIEW_SHEET_NAME = 'Review Tecnica';
+const API_SHEET_NAME = 'API';
+const SCRIPT_SHEET_NAME = 'Script';
 
 const createInitialState = () => ({
   botId: null,
@@ -129,13 +132,6 @@ const formatSyncStatus = (status) => {
   return String(status.phase || '-');
 };
 
-const escapeHtml = (value) =>
-  String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-
 const sanitizeFileName = (value) =>
   String(value ?? '')
     .normalize('NFD')
@@ -144,22 +140,8 @@ const sanitizeFileName = (value) =>
     .replace(/^_+|_+$/g, '')
     .slice(0, 60) || 'bot';
 
-const downloadExcelTable = (filename, header, rows) => {
-  const tableRows = [header, ...rows]
-    .map((cols) => `<tr>${cols.map((col) => `<td>${escapeHtml(col)}</td>`).join('')}</tr>`)
-    .join('');
-
-  const html = `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-  </head>
-  <body>
-    <table>${tableRows}</table>
-  </body>
-</html>`;
-
-  const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+const downloadBinaryFile = (filename, data, mimeType) => {
+  const blob = new Blob([data], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -169,6 +151,50 @@ const downloadExcelTable = (filename, header, rows) => {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+};
+
+const getXlsx = () => globalThis.XLSX ?? null;
+
+const createSheet = (rows) => {
+  const xlsx = getXlsx();
+  if (!xlsx) throw new Error('SheetJS não está disponível no painel.');
+  return xlsx.utils.aoa_to_sheet(Array.isArray(rows) ? rows : []);
+};
+
+const appendSheet = (workbook, sheet) => {
+  const xlsx = getXlsx();
+  if (!xlsx) throw new Error('SheetJS não está disponível no painel.');
+
+  const descriptor = sheet ?? {};
+  const worksheet = createSheet(descriptor.rows);
+  xlsx.utils.book_append_sheet(workbook, worksheet, descriptor.name);
+  if (typeof descriptor.afterAppend === 'function') {
+    descriptor.afterAppend({ workbook, worksheet, xlsx });
+  }
+  return worksheet;
+};
+
+const downloadWorkbook = (filename, sheets) => {
+  const xlsx = getXlsx();
+  if (!xlsx) throw new Error('SheetJS não está disponível no painel.');
+
+  const workbook = xlsx.utils.book_new();
+  (Array.isArray(sheets) ? sheets : []).forEach((sheet) => {
+    if (!sheet?.name) return;
+    appendSheet(workbook, sheet);
+  });
+
+  const data = xlsx.write(workbook, {
+    bookType: 'xlsx',
+    type: 'array',
+    compression: true,
+  });
+
+  downloadBinaryFile(
+    filename,
+    data,
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  );
 };
 
 const estimateBytes = (value) => {
@@ -218,6 +244,287 @@ const buildReviewRecords = ({ items = [], variables = [], tags = [] } = {}) => [
   ...(Array.isArray(variables) ? variables : []).map((variable) => createReviewVariableRecord(variable)),
   ...(Array.isArray(tags) ? tags : []).map((tag) => createReviewTagRecord(tag)),
 ];
+
+const isPlainObject = (value) => Object.prototype.toString.call(value) === '[object Object]';
+
+const getNestedValue = (source, path) => {
+  const parts = Array.isArray(path) ? path : String(path ?? '').split('.');
+  let current = source;
+  for (const part of parts) {
+    if (current === null || current === undefined) return undefined;
+    current = current?.[part];
+  }
+  return current;
+};
+
+const pickFirstNestedValue = (source, paths = []) => {
+  for (const path of paths) {
+    const value = getNestedValue(source, path);
+    if (value !== null && value !== undefined && value !== '') return value;
+  }
+  return null;
+};
+
+const asCellText = (value) => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+};
+
+const stringifyHeaderEntry = (entry) => {
+  if (entry === null || entry === undefined) return '';
+  if (typeof entry === 'string') return entry.trim();
+  if (typeof entry === 'number' || typeof entry === 'boolean') return String(entry);
+  if (!isPlainObject(entry)) return asCellText(entry);
+
+  const key = String(
+    entry.key ?? entry.name ?? entry.label ?? entry.header ?? entry.field ?? entry.id ?? '',
+  ).trim();
+  const value = entry.value ?? entry.content ?? entry.result ?? entry.text ?? entry.data ?? null;
+  const valueText = asCellText(value);
+  if (key && valueText) return `${key}: ${valueText}`;
+  if (key) return key;
+  return valueText;
+};
+
+const flattenHeaders = (value) => {
+  if (value === null || value === undefined) return '';
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => stringifyHeaderEntry(entry))
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+  }
+  if (isPlainObject(value)) {
+    return Object.entries(value)
+      .map(([key, headerValue]) => {
+        const text = asCellText(headerValue);
+        return text ? `${key}: ${text}` : key;
+      })
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+  }
+  return asCellText(value);
+};
+
+const getBlockRecordPayload = (record) => {
+  if (!record || record.reviewKind !== REVIEW_KIND_BLOCK) return null;
+  return isPlainObject(record.payload) ? record.payload : null;
+};
+
+const getBlockRecordType = (record) =>
+  String(record?.type ?? record?.payload?.type ?? '')
+    .trim()
+    .toLowerCase();
+
+const isApiBlockRecord = (record) => /api/.test(getBlockRecordType(record));
+
+const isScriptBlockRecord = (record) => /script/.test(getBlockRecordType(record));
+
+const extractApiExportData = (record) => {
+  if (!isApiBlockRecord(record)) return null;
+  const payload = getBlockRecordPayload(record);
+  if (!payload) return null;
+
+  const endpoint = asCellText(
+    pickFirstNestedValue(payload, ['urlEndpoint', 'endpoint', 'url', 'apiUrl', 'request.url']),
+  );
+  const method = asCellText(
+    pickFirstNestedValue(payload, ['methodType', 'method', 'httpMethod', 'request.method']),
+  );
+  const headers = flattenHeaders(
+    pickFirstNestedValue(payload, ['headers', 'customHeaders', 'request.headers']),
+  );
+
+  if (!endpoint && !method && !headers) return null;
+
+  return [
+    record.displayId ?? record.itemId ?? '',
+    record.title ?? '',
+    endpoint,
+    method,
+    headers,
+  ];
+};
+
+const extractScriptExportData = (record) => {
+  if (!isScriptBlockRecord(record)) return null;
+  const payload = getBlockRecordPayload(record);
+  if (!payload) return null;
+
+  const script = asCellText(
+    pickFirstNestedValue(payload, ['scriptCode', 'script', 'code', 'data.scriptCode', 'config.scriptCode']),
+  )
+    .replace(/\r/g, '')
+    .trim();
+
+  if (!script) return null;
+
+  const nonEmptyLines = script
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (nonEmptyLines.length <= 1) return null;
+
+  return [
+    record.displayId ?? record.itemId ?? '',
+    record.title ?? '',
+    script,
+  ];
+};
+
+const buildReviewExportKey = (scope, index, row, description) => {
+  const id = String(
+    row?.displayId ?? row?.leftDisplayId ?? row?.rightDisplayId ?? row?.itemId ?? row?.leftItemId ?? row?.rightItemId ?? '',
+  ).trim();
+  const title = String(row?.title ?? '').trim();
+  return `${scope}:${index}:${id}:${title}:${description}`;
+};
+
+const buildReviewExportEntries = ({ changedRows = [], removedRows = [], includedRows = [] } = {}) => {
+  const entries = [];
+
+  changedRows.forEach((row, index) => {
+    entries.push({
+      key: buildReviewExportKey('changed', index, row, 'alterado'),
+      cells: [
+        row.type ?? '',
+        row.displayId ?? row.leftDisplayId ?? row.rightDisplayId ?? row.itemId ?? row.leftItemId ?? row.rightItemId ?? '',
+        row.title ?? '',
+        'alterado',
+      ],
+      detailRecord: row?.rightItem ?? null,
+    });
+  });
+
+  removedRows.forEach((row, index) => {
+    entries.push({
+      key: buildReviewExportKey('removed', index, row, 'removido'),
+      cells: [
+        row.type ?? '',
+        row.displayId ?? row.itemId ?? '',
+        row.title ?? '',
+        'removido',
+      ],
+      detailRecord: null,
+    });
+  });
+
+  includedRows.forEach((row, index) => {
+    entries.push({
+      key: buildReviewExportKey('included', index, row, 'incluido'),
+      cells: [
+        row.type ?? '',
+        row.displayId ?? row.itemId ?? '',
+        row.title ?? '',
+        'incluido',
+      ],
+      detailRecord: row?.item ?? null,
+    });
+  });
+
+  entries.sort((a, b) => {
+    const idDiff = String(a.cells[1] ?? '').localeCompare(String(b.cells[1] ?? ''), 'pt-BR');
+    if (idDiff !== 0) return idDiff;
+    const descDiff = String(a.cells[3] ?? '').localeCompare(String(b.cells[3] ?? ''), 'pt-BR');
+    if (descDiff !== 0) return descDiff;
+    return String(a.cells[2] ?? '').localeCompare(String(b.cells[2] ?? ''), 'pt-BR');
+  });
+
+  return entries;
+};
+
+const buildDetailExportEntries = (reviewEntries = []) => {
+  const apiEntries = [];
+  const scriptEntries = [];
+
+  reviewEntries.forEach((entry) => {
+    const record = entry?.detailRecord ?? null;
+    const apiCells = extractApiExportData(record);
+    if (apiCells) {
+      apiEntries.push({
+        reviewKey: entry.key,
+        cells: apiCells,
+      });
+    }
+
+    const scriptCells = extractScriptExportData(record);
+    if (scriptCells) {
+      scriptEntries.push({
+        reviewKey: entry.key,
+        cells: scriptCells,
+      });
+    }
+  });
+
+  apiEntries.sort((a, b) => {
+    const idDiff = String(a.cells[0] ?? '').localeCompare(String(b.cells[0] ?? ''), 'pt-BR');
+    if (idDiff !== 0) return idDiff;
+    return String(a.cells[1] ?? '').localeCompare(String(b.cells[1] ?? ''), 'pt-BR');
+  });
+
+  scriptEntries.sort((a, b) => {
+    const idDiff = String(a.cells[0] ?? '').localeCompare(String(b.cells[0] ?? ''), 'pt-BR');
+    if (idDiff !== 0) return idDiff;
+    return String(a.cells[1] ?? '').localeCompare(String(b.cells[1] ?? ''), 'pt-BR');
+  });
+
+  return { apiEntries, scriptEntries };
+};
+
+const getSheetCellAddress = (rowIndex, colIndex) => {
+  const xlsx = getXlsx();
+  if (!xlsx) throw new Error('SheetJS não está disponível no painel.');
+  return xlsx.utils.encode_cell({ r: rowIndex, c: colIndex });
+};
+
+const quoteSheetName = (name) => {
+  const raw = String(name ?? '').trim() || 'Sheet1';
+  if (/^[A-Za-z0-9_]+$/.test(raw)) return raw;
+  return `'${raw.replace(/'/g, "''")}'`;
+};
+
+const buildInternalLinkTarget = (sheetName, cellAddress) => `#${quoteSheetName(sheetName)}!${cellAddress}`;
+
+const normalizeLinkTooltip = (value) => {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  if (raw.length <= 250) return raw;
+  return `${raw.slice(0, 247)}...`;
+};
+
+const setWorksheetInternalLink = ({
+  worksheet,
+  rowIndex,
+  colIndex,
+  targetSheetName,
+  targetCellAddress,
+  tooltip = '',
+}) => {
+  if (!worksheet || !targetSheetName || !targetCellAddress) return;
+
+  const cellAddress = getSheetCellAddress(rowIndex, colIndex);
+  if (!worksheet[cellAddress]) {
+    worksheet[cellAddress] = { t: 's', v: '' };
+  }
+
+  worksheet[cellAddress].l = {
+    Target: buildInternalLinkTarget(targetSheetName, targetCellAddress),
+  };
+
+  const safeTooltip = normalizeLinkTooltip(tooltip);
+  if (safeTooltip) {
+    worksheet[cellAddress].l.Tooltip = safeTooltip;
+  }
+};
 
 const isBusy = () => Boolean(state.loading || state.snapshotting || state.comparing || state.exporting);
 
@@ -1060,65 +1367,123 @@ const exportComparison = () => {
 
   try {
     const cmp = state.comparison;
-    const rows = [];
     const changedRows = getFilteredChangedRows();
-
-    changedRows.forEach((row) => {
-      rows.push([
-        row.type ?? '',
-        row.displayId ?? row.leftDisplayId ?? row.rightDisplayId ?? row.itemId ?? row.leftItemId ?? row.rightItemId ?? '',
-        row.title ?? '',
-        'alterado',
-      ]);
+    const reviewEntries = buildReviewExportEntries({
+      changedRows,
+      removedRows: cmp.onlyLeftSamples,
+      includedRows: cmp.onlyRightSamples,
     });
 
-    cmp.onlyLeftSamples.forEach((row) => {
-      rows.push([
-        row.type ?? '',
-        row.displayId ?? row.itemId ?? '',
-        row.title ?? '',
-        'removido',
-      ]);
-    });
-
-    cmp.onlyRightSamples.forEach((row) => {
-      rows.push([
-        row.type ?? '',
-        row.displayId ?? row.itemId ?? '',
-        row.title ?? '',
-        'incluido',
-      ]);
-    });
-
-    if (!rows.length) {
+    if (!reviewEntries.length) {
       state.statusKind = 'error';
       state.statusText = 'Não há diferenças para exportar.';
       return;
     }
 
-    rows.sort((a, b) => {
-      const idDiff = String(a[1] ?? '').localeCompare(String(b[1] ?? ''), 'pt-BR');
-      if (idDiff !== 0) return idDiff;
-      const descDiff = String(a[3] ?? '').localeCompare(String(b[3] ?? ''), 'pt-BR');
-      if (descDiff !== 0) return descDiff;
-      return String(a[2] ?? '').localeCompare(String(b[2] ?? ''), 'pt-BR');
+    const { apiEntries, scriptEntries } = buildDetailExportEntries(reviewEntries);
+    const reviewRowAddressByKey = new Map();
+    const apiRowAddressByKey = new Map();
+    const scriptRowAddressByKey = new Map();
+
+    reviewEntries.forEach((entry, index) => {
+      reviewRowAddressByKey.set(entry.key, getSheetCellAddress(index + 1, 1));
+    });
+
+    apiEntries.forEach((entry, index) => {
+      apiRowAddressByKey.set(entry.reviewKey, getSheetCellAddress(index + 1, 0));
+    });
+
+    scriptEntries.forEach((entry, index) => {
+      scriptRowAddressByKey.set(entry.reviewKey, getSheetCellAddress(index + 1, 0));
     });
 
     const safeBot = sanitizeFileName(state.meta?.botTitle || state.botId);
     const safeDate = new Date().toISOString().replace(/[:.]/g, '-');
-    downloadExcelTable(
-      `bot-side-panel-review-tecnica_${safeBot}_${safeDate}.xls`,
-      [
-        'Tipo do bloco',
-        'ID do bloco',
-        'Nome do bloco',
-        'Descrição',
-      ],
-      rows,
-    );
+    downloadWorkbook(`bot-side-panel-review-tecnica_${safeBot}_${safeDate}.xlsx`, [
+      {
+        name: REVIEW_SHEET_NAME,
+        rows: [
+          ['Tipo do bloco', 'ID do bloco', 'Nome do bloco', 'Descrição'],
+          ...reviewEntries.map((entry) => entry.cells),
+        ],
+        afterAppend: ({ worksheet }) => {
+          reviewEntries.forEach((entry, index) => {
+            const apiTarget = apiRowAddressByKey.get(entry.key);
+            const scriptTarget = scriptRowAddressByKey.get(entry.key);
+            if (apiTarget) {
+              setWorksheetInternalLink({
+                worksheet,
+                rowIndex: index + 1,
+                colIndex: 1,
+                targetSheetName: API_SHEET_NAME,
+                targetCellAddress: apiTarget,
+                tooltip: 'Abrir detalhes na aba API',
+              });
+              return;
+            }
+            if (scriptTarget) {
+              setWorksheetInternalLink({
+                worksheet,
+                rowIndex: index + 1,
+                colIndex: 1,
+                targetSheetName: SCRIPT_SHEET_NAME,
+                targetCellAddress: scriptTarget,
+                tooltip: 'Abrir detalhes na aba Script',
+              });
+            }
+          });
+        },
+      },
+      apiEntries.length
+        ? {
+            name: API_SHEET_NAME,
+            rows: [
+              ['ID do bloco', 'Nome do bloco', 'URL Endpoint', 'Metodo HTTP', 'Header'],
+              ...apiEntries.map((entry) => entry.cells),
+            ],
+            afterAppend: ({ worksheet }) => {
+              apiEntries.forEach((entry, index) => {
+                const reviewTarget = reviewRowAddressByKey.get(entry.reviewKey);
+                if (!reviewTarget) return;
+                setWorksheetInternalLink({
+                  worksheet,
+                  rowIndex: index + 1,
+                  colIndex: 0,
+                  targetSheetName: REVIEW_SHEET_NAME,
+                  targetCellAddress: reviewTarget,
+                  tooltip: 'Voltar para a aba Review Tecnica',
+                });
+              });
+            },
+          }
+        : null,
+      scriptEntries.length
+        ? {
+            name: SCRIPT_SHEET_NAME,
+            rows: [
+              ['ID do bloco', 'Nome do bloco', 'Script'],
+              ...scriptEntries.map((entry) => entry.cells),
+            ],
+            afterAppend: ({ worksheet }) => {
+              scriptEntries.forEach((entry, index) => {
+                const reviewTarget = reviewRowAddressByKey.get(entry.reviewKey);
+                if (!reviewTarget) return;
+                setWorksheetInternalLink({
+                  worksheet,
+                  rowIndex: index + 1,
+                  colIndex: 0,
+                  targetSheetName: REVIEW_SHEET_NAME,
+                  targetCellAddress: reviewTarget,
+                  tooltip: 'Voltar para a aba Review Tecnica',
+                });
+              });
+            },
+          }
+        : null,
+    ]);
 
     state.statusKind = 'success';
-    state.statusText = `Exportado: ${rows.length} linha(s).`;
+    state.statusText = `Exportado: ${reviewEntries.length} linha(s).`;
   } finally {
     state.exporting = false;
     render();
