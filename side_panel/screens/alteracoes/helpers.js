@@ -67,10 +67,10 @@ const getDocTitle = (doc, indexedTitle, description, targetId) =>
   ) || 'Sem título';
 
 const getDocType = (doc) =>
-  toText(doc?.type ?? doc?.docType ?? doc?.documentType ?? doc?.blockType ?? '');
+  toText(doc?.itemType ?? doc?.type ?? doc?.docType ?? doc?.documentType ?? doc?.blockType ?? '');
 
 const getDocUpdatedAt = (doc) =>
-  toText(doc?.updatedAt ?? doc?.createdAt ?? doc?.date ?? doc?.timestamp ?? '');
+  toText(doc?.when ?? doc?.updatedAt ?? doc?.createdAt ?? doc?.date ?? doc?.timestamp ?? '');
 
 const getDocUserName = (doc) => toText(doc?.userName ?? doc?.user ?? '') || 'Desconhecido';
 

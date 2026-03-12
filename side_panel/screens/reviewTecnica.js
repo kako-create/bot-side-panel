@@ -1,6 +1,9 @@
 import { callBG, MessageType } from '../../services/messaging.js';
 import {
   getMeta,
+  getGroupsByBot,
+  getTechReviewChangeMonitor,
+  listTechReviewChangeEvents,
   listBotTags,
   listBotVariables,
   listTechReviewSnapshots,
@@ -12,6 +15,7 @@ import { buildBlockLink } from '../links.js';
 import { createBlockComparePreview } from '../components/blockComparePreview.js';
 import { createPropsDiffPanel } from '../components/propsDiffPanel.js';
 import { compareFullItemCollections } from '../services/fullItemsCompare.js';
+import { normalizeText } from '../../shared/utils.js';
 
 const TEMPLATE_ID = 'tpl-screen-review-tecnica';
 const TARGET_CURRENT = 'current';
@@ -31,6 +35,7 @@ const createInitialState = () => ({
   appBaseUrl: null,
   hasAuth: false,
   meta: null,
+  changeMonitorMeta: null,
   syncStatus: null,
   loading: false,
   snapshotting: false,
@@ -73,6 +78,9 @@ const initEls = () => {
     mode: q('#review-tech-mode'),
     auth: q('#review-tech-auth'),
     sync: q('#review-tech-sync'),
+    changeMonitor: q('#review-tech-change-monitor'),
+    changeMonitorToggle: q('#review-tech-change-monitor-toggle'),
+    changeMonitorNote: q('#review-tech-change-monitor-note'),
     snapshotCount: q('#review-tech-snapshot-count'),
     latestSnapshot: q('#review-tech-latest-snapshot'),
     captureBtn: q('#review-tech-capture'),
@@ -117,10 +125,309 @@ const formatDate = (value) => {
   }
 };
 
+const toTimestamp = (value) => {
+  const raw = String(value ?? '').trim();
+  if (/^\d+$/.test(raw)) {
+    const numeric = Number(raw);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      return numeric < 1e12 ? numeric * 1000 : numeric;
+    }
+  }
+  const ms = new Date(value ?? '').getTime();
+  return Number.isFinite(ms) ? ms : 0;
+};
+
 const formatDuration = (ms) => {
   const value = Number(ms) || 0;
   if (value < 1000) return `${value} ms`;
   return `${(value / 1000).toFixed(2)} s`;
+};
+
+const isChangeMonitorEnabled = (meta) => meta?.monitoringEnabled !== false;
+
+const getMonitorStatusLabel = (meta, { hasSnapshots = false, hasAuth = false, botId = null } = {}) => {
+  if (!botId || !hasAuth) return 'Pausado';
+  if (!hasSnapshots) return 'Pausado';
+  if (isChangeMonitorEnabled(meta) && (!meta || meta?.status === 'active')) return 'Ativo';
+  return 'Pausado';
+};
+
+const getMonitorStatusNote = (meta, { hasSnapshots = false, hasAuth = false, botId = null } = {}) => {
+  if (!botId) {
+    return 'O app não está lendo alterações pendentes automaticamente porque não há BOT selecionado.';
+  }
+  if (!hasAuth) {
+    return 'O app não está lendo alterações pendentes automaticamente porque o token não está disponível.';
+  }
+  if (!hasSnapshots) {
+    return 'O app não está lendo alterações pendentes automaticamente. Crie um snapshot para habilitar o monitoramento.';
+  }
+  if (!meta) {
+    return 'O app está lendo alterações pendentes automaticamente.';
+  }
+  if (meta?.reason === 'manual' || !isChangeMonitorEnabled(meta)) {
+    return 'O app não está lendo alterações pendentes automaticamente.';
+  }
+  if (meta?.reason === 'no_builder') {
+    return 'O app não está lendo alterações pendentes automaticamente porque o builder BOT não está aberto.';
+  }
+  if (meta?.reason === 'no_auth') {
+    return 'O app não está lendo alterações pendentes automaticamente porque o token não está disponível.';
+  }
+  if (meta?.reason === 'no_snapshot') {
+    return 'O app não está lendo alterações pendentes automaticamente porque não há snapshot nesta base.';
+  }
+  if (meta?.lastError) {
+    return 'O app não está lendo alterações pendentes automaticamente por falha recente na monitoração.';
+  }
+  if (meta?.lastSuccessAt) {
+    return `O app está lendo alterações pendentes automaticamente. Última coleta: ${formatDate(meta.lastSuccessAt)}.`;
+  }
+  return 'O app está lendo alterações pendentes automaticamente.';
+};
+
+const formatMonitoredChange = (change, { compact = false } = {}) => {
+  if (!change) return '';
+  const userName = String(change?.userName ?? '').trim() || 'Desconhecido';
+  const action = String(change?.action ?? '').trim() || 'unknown';
+  const updatedAt = formatDate(change?.updatedAt);
+  if (compact) return `${userName} | ${action} | ${updatedAt}`;
+  return `Última alteração monitorada: ${userName} | ${action} | ${updatedAt}`;
+};
+
+const formatMonitoredChangeEvent = (change) => {
+  if (!change) return '';
+  const action = String(change?.action ?? '').trim() || 'unknown';
+  const updatedAt = formatDate(change?.updatedAt);
+  return [action, updatedAt !== '-' ? updatedAt : ''].filter(Boolean).join(' | ');
+};
+
+const getMonitoredChangeUserName = (change) => String(change?.userName ?? '').trim() || '';
+
+const buildEventTargetIds = (event) =>
+  Array.from(
+    new Set(
+      [event?.targetId, ...(Array.isArray(event?.targetIds) ? event.targetIds : [])]
+        .map((value) => String(value ?? '').trim())
+        .filter(Boolean),
+    ),
+  );
+
+const buildTitleKey = (title) => normalizeText(String(title ?? '').trim());
+
+const buildTypedTitleKey = ({ title, type } = {}) => {
+  const titleKey = buildTitleKey(title);
+  if (!titleKey) return '';
+  const typeKey = normalizeText(String(type ?? '').trim());
+  return typeKey ? `${typeKey}::${titleKey}` : '';
+};
+
+const getChangeTimestamp = (change) => {
+  const updatedAtTs = Number(change?.updatedAtTs ?? 0);
+  if (Number.isFinite(updatedAtTs) && updatedAtTs > 0) return updatedAtTs;
+  return toTimestamp(change?.updatedAt);
+};
+
+const isEventNewer = (nextEvent, currentEvent) => {
+  const nextTs = getChangeTimestamp(nextEvent);
+  const currentTs = getChangeTimestamp(currentEvent);
+  if (nextTs !== currentTs) return nextTs > currentTs;
+  return String(nextEvent?.observedAt ?? '') > String(currentEvent?.observedAt ?? '');
+};
+
+const upsertLatestEvent = (map, key, event) => {
+  if (!key) return;
+  const current = map.get(key);
+  if (!current || isEventNewer(event, current)) {
+    map.set(key, event);
+  }
+};
+
+const upsertFallbackBucket = (map, key, event) => {
+  if (!key) return;
+  const distinctKey =
+    buildEventTargetIds(event)[0] ||
+    buildTypedTitleKey({
+      title: event?.title,
+      type: event?.type,
+    }) ||
+    buildTitleKey(event?.title) ||
+    String(event?.apiId ?? event?.changeId ?? event?.title ?? '').trim();
+  if (!distinctKey) return;
+
+  const current = map.get(key) ?? { event: null, distinctKeys: new Set() };
+  current.distinctKeys.add(distinctKey);
+  if (!current.event || isEventNewer(event, current.event)) {
+    current.event = event;
+  }
+  map.set(key, current);
+};
+
+const readFallbackBucket = (bucket) => {
+  if (!bucket?.event) return null;
+  if ((bucket.distinctKeys?.size ?? 0) !== 1) return null;
+  return bucket.event;
+};
+
+const getSnapshotSourceSyncTs = (snapshot) => toTimestamp(snapshot?.sourceLastItemsSyncAt);
+
+const buildComparisonWindow = ({ baseSnapshot, targetSnapshot = null, currentMeta = null } = {}) => {
+  const baseTs = getSnapshotSourceSyncTs(baseSnapshot);
+  const targetTs = targetSnapshot
+    ? getSnapshotSourceSyncTs(targetSnapshot)
+    : toTimestamp(currentMeta?.lastItemsSyncAt);
+  if (!baseTs || !targetTs) return null;
+  const fromTs = Math.min(baseTs, targetTs);
+  const toTs = Math.max(baseTs, targetTs);
+  return {
+    fromTs,
+    toTs,
+    fromAt: new Date(fromTs).toISOString(),
+    toAt: new Date(toTs).toISOString(),
+  };
+};
+
+const collectComparisonBlockIds = (comparison) => {
+  const ids = new Set();
+  const pushRowId = (row) => {
+    if (!row || row.reviewKind !== REVIEW_KIND_BLOCK) return;
+    const itemId = String(
+      row?.rightItemId ??
+        row?.leftItemId ??
+        row?.itemId ??
+        row?.item?.itemId ??
+        '',
+    ).trim();
+    if (itemId) ids.add(itemId);
+  };
+
+  (Array.isArray(comparison?.changedSamples) ? comparison.changedSamples : []).forEach(pushRowId);
+  (Array.isArray(comparison?.onlyLeftSamples) ? comparison.onlyLeftSamples : []).forEach(pushRowId);
+  (Array.isArray(comparison?.onlyRightSamples) ? comparison.onlyRightSamples : []).forEach(pushRowId);
+  return Array.from(ids);
+};
+
+const buildLatestChangeLookups = (events, fromTs, toTs) => {
+  const byTargetId = new Map();
+  const byTypedTitle = new Map();
+  const byTitle = new Map();
+
+  (Array.isArray(events) ? events : []).forEach((event) => {
+    const updatedAtTs = getChangeTimestamp(event);
+    if (!updatedAtTs) return;
+    if (updatedAtTs <= fromTs || updatedAtTs > toTs) return;
+    buildEventTargetIds(event).forEach((targetId) => upsertLatestEvent(byTargetId, targetId, event));
+    upsertFallbackBucket(
+      byTypedTitle,
+      buildTypedTitleKey({
+        title: event?.title,
+        type: event?.type,
+      }),
+      event,
+    );
+    upsertFallbackBucket(byTitle, buildTitleKey(event?.title), event);
+  });
+  return {
+    byTargetId,
+    byTypedTitle,
+    byTitle,
+  };
+};
+
+const collectRowTargetIds = (row) =>
+  Array.from(
+    new Set(
+      [
+        row?.rightItemId,
+        row?.leftItemId,
+        row?.itemId,
+        row?.item?.itemId,
+        row?.leftItem?.itemId,
+        row?.rightItem?.itemId,
+      ]
+        .map((value) => String(value ?? '').trim())
+        .filter(Boolean),
+    ),
+  );
+
+const collectRowTypedTitleKeys = (row) => {
+  const keys = [];
+  const pushKey = (title, type) => {
+    const key = buildTypedTitleKey({ title, type });
+    if (key && !keys.includes(key)) keys.push(key);
+  };
+
+  pushKey(row?.rightItem?.title ?? row?.title, row?.rightItem?.type ?? row?.type);
+  pushKey(row?.leftItem?.title ?? row?.title, row?.leftItem?.type ?? row?.type);
+  pushKey(row?.item?.title ?? row?.title, row?.item?.type ?? row?.type);
+  pushKey(row?.title, row?.type);
+  return keys;
+};
+
+const collectRowTitleKeys = (row) => {
+  const keys = [];
+  const pushKey = (title) => {
+    const key = buildTitleKey(title);
+    if (key && !keys.includes(key)) keys.push(key);
+  };
+
+  pushKey(row?.rightItem?.title ?? row?.title);
+  pushKey(row?.leftItem?.title ?? row?.title);
+  pushKey(row?.item?.title ?? row?.title);
+  pushKey(row?.title);
+  return keys;
+};
+
+const resolveLatestChangeForRow = (row, lookups) => {
+  const byTargetId = lookups?.byTargetId ?? new Map();
+  for (const targetId of collectRowTargetIds(row)) {
+    const match = byTargetId.get(targetId);
+    if (match) return match;
+  }
+
+  const byTypedTitle = lookups?.byTypedTitle ?? new Map();
+  for (const key of collectRowTypedTitleKeys(row)) {
+    const match = readFallbackBucket(byTypedTitle.get(key));
+    if (match) return match;
+  }
+
+  const byTitle = lookups?.byTitle ?? new Map();
+  for (const key of collectRowTitleKeys(row)) {
+    const match = readFallbackBucket(byTitle.get(key));
+    if (match) return match;
+  }
+
+  return null;
+};
+
+const attachLatestChangeToRow = (row, lookups) => {
+  if (!row || row.reviewKind !== REVIEW_KIND_BLOCK) return row;
+  return {
+    ...row,
+    latestChange: resolveLatestChangeForRow(row, lookups),
+  };
+};
+
+const getChangeHistoryCoverage = (monitorMeta, window) => {
+  if (!window?.fromTs || !window?.toTs) {
+    return { level: 'none', label: 'Sem janela', note: 'Intervalo temporal indisponível.' };
+  }
+  const oldestObservedAtTs = toTimestamp(monitorMeta?.oldestObservedAt);
+  if (!oldestObservedAtTs) {
+    return { level: 'none', label: 'Sem cobertura', note: 'Monitoramento ainda não coletou alterações.' };
+  }
+  if (window.fromTs < oldestObservedAtTs) {
+    return {
+      level: 'partial',
+      label: 'Parcial',
+      note: `Histórico monitorado desde ${formatDate(monitorMeta?.oldestObservedAt)}.`,
+    };
+  }
+  return {
+    level: 'ok',
+    label: 'OK',
+    note: `Histórico coberto no intervalo. Coleta desde ${formatDate(monitorMeta?.oldestObservedAt)}.`,
+  };
 };
 
 const formatSyncStatus = (status) => {
@@ -389,43 +696,102 @@ const buildReviewExportKey = (scope, index, row, description) => {
   return `${scope}:${index}:${id}:${title}:${description}`;
 };
 
-const buildReviewExportEntries = ({ changedRows = [], removedRows = [], includedRows = [] } = {}) => {
+const resolveStaticGroupLabel = (record, groupsById = new Map()) => {
+  if (!record) return '';
+  if (record.reviewKind === REVIEW_KIND_VARIABLE) {
+    return String(record?.payload?.groupLabel ?? record?.payload?.group ?? 'Variáveis').trim() || 'Variáveis';
+  }
+  if (record.reviewKind === REVIEW_KIND_TAG) return 'Tags';
+  const groupId = String(record?.groupId ?? '').trim();
+  return String(groupsById.get(groupId) ?? groupId).trim();
+};
+
+const resolveRowGroupLabel = (row, groupsById = new Map(), { scope = 'single' } = {}) => {
+  if (!row) return '';
+
+  if (scope === 'changed') {
+    const leftRecord =
+      row?.leftItem ??
+      (row?.leftGroupId || row?.reviewKind
+        ? {
+            reviewKind: row?.reviewKind ?? REVIEW_KIND_BLOCK,
+            groupId: row?.leftGroupId ?? '',
+          }
+        : null);
+    const rightRecord =
+      row?.rightItem ??
+      (row?.rightGroupId || row?.reviewKind
+        ? {
+            reviewKind: row?.reviewKind ?? REVIEW_KIND_BLOCK,
+            groupId: row?.rightGroupId ?? '',
+          }
+        : null);
+    const leftLabel = resolveStaticGroupLabel(leftRecord, groupsById);
+    const rightLabel = resolveStaticGroupLabel(rightRecord, groupsById);
+    if (leftLabel && rightLabel && leftLabel !== rightLabel) {
+      return `Base: ${leftLabel} | Comparação: ${rightLabel}`;
+    }
+    return rightLabel || leftLabel;
+  }
+
+  return resolveStaticGroupLabel(row?.item ?? row, groupsById);
+};
+
+const buildReviewExportEntries = ({ changedRows = [], removedRows = [], includedRows = [], groupsById = new Map() } = {}) => {
   const entries = [];
 
   changedRows.forEach((row, index) => {
+    const monitoredChange = formatMonitoredChangeEvent(row?.latestChange);
+    const changedBy = getMonitoredChangeUserName(row?.latestChange);
+    const groupLabel = resolveRowGroupLabel(row, groupsById, { scope: 'changed' });
     entries.push({
       key: buildReviewExportKey('changed', index, row, 'alterado'),
       cells: [
         row.type ?? '',
         row.displayId ?? row.leftDisplayId ?? row.rightDisplayId ?? row.itemId ?? row.leftItemId ?? row.rightItemId ?? '',
         row.title ?? '',
+        groupLabel,
         'alterado',
+        changedBy,
+        monitoredChange,
       ],
       detailRecord: row?.rightItem ?? null,
     });
   });
 
   removedRows.forEach((row, index) => {
+    const monitoredChange = formatMonitoredChangeEvent(row?.latestChange);
+    const changedBy = getMonitoredChangeUserName(row?.latestChange);
+    const groupLabel = resolveRowGroupLabel(row, groupsById);
     entries.push({
       key: buildReviewExportKey('removed', index, row, 'removido'),
       cells: [
         row.type ?? '',
         row.displayId ?? row.itemId ?? '',
         row.title ?? '',
+        groupLabel,
         'removido',
+        changedBy,
+        monitoredChange,
       ],
       detailRecord: null,
     });
   });
 
   includedRows.forEach((row, index) => {
+    const monitoredChange = formatMonitoredChangeEvent(row?.latestChange);
+    const changedBy = getMonitoredChangeUserName(row?.latestChange);
+    const groupLabel = resolveRowGroupLabel(row, groupsById);
     entries.push({
       key: buildReviewExportKey('included', index, row, 'incluido'),
       cells: [
         row.type ?? '',
         row.displayId ?? row.itemId ?? '',
         row.title ?? '',
+        groupLabel,
         'incluido',
+        changedBy,
+        monitoredChange,
       ],
       detailRecord: row?.item ?? null,
     });
@@ -434,7 +800,7 @@ const buildReviewExportEntries = ({ changedRows = [], removedRows = [], included
   entries.sort((a, b) => {
     const idDiff = String(a.cells[1] ?? '').localeCompare(String(b.cells[1] ?? ''), 'pt-BR');
     if (idDiff !== 0) return idDiff;
-    const descDiff = String(a.cells[3] ?? '').localeCompare(String(b.cells[3] ?? ''), 'pt-BR');
+    const descDiff = String(a.cells[4] ?? '').localeCompare(String(b.cells[4] ?? ''), 'pt-BR');
     if (descDiff !== 0) return descDiff;
     return String(a.cells[2] ?? '').localeCompare(String(b.cells[2] ?? ''), 'pt-BR');
   });
@@ -765,6 +1131,7 @@ const createChangedLine = (row, index, cmp) => {
     formatChangedKeysSummary(row.keys),
     row.scriptChanged ? 'Script alterado' : null,
     `${Array.isArray(row.mergeDiff) ? row.mergeDiff.length : 0} diferenças`,
+    row.latestChange ? formatMonitoredChange(row.latestChange, { compact: true }) : null,
   ].filter(Boolean);
   description.textContent = fragments.join(' | ');
   info.appendChild(description);
@@ -796,6 +1163,13 @@ const createChangedLine = (row, index, cmp) => {
   idLine.className = 'muted compare-line__ids';
   idLine.textContent = `Base: ${row.leftDisplayId || row.leftItemId || '-'} | Comparação: ${row.rightDisplayId || row.rightItemId || '-'}`;
   details.appendChild(idLine);
+
+  if (row.latestChange) {
+    const changeLine = document.createElement('div');
+    changeLine.className = 'muted compare-line__ids';
+    changeLine.textContent = formatMonitoredChange(row.latestChange);
+    details.appendChild(changeLine);
+  }
 
   const layout = document.createElement('div');
   layout.className = 'block-diff-layout';
@@ -860,6 +1234,7 @@ const updateFeedback = () => {
 
 const updateStatusCard = () => {
   const title = state.meta?.botTitle;
+  const hasSnapshots = Array.isArray(state.snapshots) && state.snapshots.length > 0;
   if (!state.botId) setText(els.bot, '-');
   else if (title) setText(els.bot, `${title} (${state.botId})`);
   else setText(els.bot, state.botId);
@@ -867,6 +1242,25 @@ const updateStatusCard = () => {
   setText(els.mode, modeLabel(normalizeMode(state.meta?.mode) || normalizeMode(state.mode)));
   setText(els.auth, state.hasAuth ? 'Disponível' : 'Ausente');
   setText(els.sync, `${formatDate(state.meta?.lastItemsSyncAt)} | ${formatSyncStatus(state.syncStatus)}`);
+  setText(
+    els.changeMonitor,
+    getMonitorStatusLabel(state.changeMonitorMeta, {
+      hasSnapshots,
+      hasAuth: state.hasAuth,
+      botId: state.botId,
+    }),
+  );
+  setText(
+    els.changeMonitorNote,
+    getMonitorStatusNote(state.changeMonitorMeta, {
+      hasSnapshots,
+      hasAuth: state.hasAuth,
+      botId: state.botId,
+    }),
+  );
+  if (els.changeMonitorToggle) {
+    els.changeMonitorToggle.checked = hasSnapshots && isChangeMonitorEnabled(state.changeMonitorMeta);
+  }
   setText(els.snapshotCount, String(Array.isArray(state.snapshots) ? state.snapshots.length : 0));
   setText(els.latestSnapshot, buildSnapshotLabel(getLatestSnapshot()));
 };
@@ -916,6 +1310,11 @@ const updateControls = () => {
     const ready = Boolean(state.botId) && Boolean(state.hasAuth) && !isBusy();
     els.captureBtn.disabled = !ready;
     els.captureBtn.textContent = state.snapshotting ? 'Capturando...' : 'Criar snapshot';
+  }
+
+  if (els.changeMonitorToggle) {
+    const hasSnapshots = Array.isArray(state.snapshots) && state.snapshots.length > 0;
+    els.changeMonitorToggle.disabled = !state.botId || !hasSnapshots || isBusy();
   }
 
   if (els.targetType) {
@@ -1033,6 +1432,11 @@ const renderSummary = () => {
     ['Incluídos', cmp.onlyRightCount],
     ['Base', cmp.totalLeft],
     ['Comparado', cmp.totalRight],
+    ['Histórico', cmp.changeHistory?.coverageLabel ?? '-'],
+    [
+      'Autoria',
+      `${Number(cmp.changeHistory?.matchedItemsCount ?? 0)}/${Number(cmp.changeHistory?.totalItems ?? 0)}`,
+    ],
     ['Tempo', formatDuration(cmp.durationMs)],
   ];
   metrics.forEach(([label, value]) => {
@@ -1072,7 +1476,9 @@ const renderDetails = () => {
     renderRow: (row) =>
       createCompareLine({
         title: formatBlockTitle(row),
-        description: 'Removido da base comparada',
+        description: row.latestChange
+          ? `Removido da base comparada | ${formatMonitoredChange(row.latestChange, { compact: true })}`
+          : 'Removido da base comparada',
       }),
   });
 
@@ -1084,7 +1490,9 @@ const renderDetails = () => {
     renderRow: (row) =>
       createCompareLine({
         title: formatBlockTitle(row),
-        description: 'Incluído na base comparada',
+        description: row.latestChange
+          ? `Incluído na base comparada | ${formatMonitoredChange(row.latestChange, { compact: true })}`
+          : 'Incluído na base comparada',
       }),
   });
 };
@@ -1110,6 +1518,7 @@ const loadLocalData = async () => {
   const botId = String(state.botId ?? '').trim();
   if (!botId) {
     state.meta = null;
+    state.changeMonitorMeta = null;
     state.snapshots = [];
     state.baseSnapshotId = '';
     state.targetSnapshotId = '';
@@ -1117,8 +1526,13 @@ const loadLocalData = async () => {
     return;
   }
 
-  const [meta, snapshots] = await Promise.all([getMeta(botId), listTechReviewSnapshots(botId)]);
+  const [meta, changeMonitorMeta, snapshots] = await Promise.all([
+    getMeta(botId),
+    getTechReviewChangeMonitor(botId),
+    listTechReviewSnapshots(botId),
+  ]);
   state.meta = meta;
+  state.changeMonitorMeta = changeMonitorMeta;
   state.snapshots = Array.isArray(snapshots) ? snapshots : [];
 
   if (state.baseSnapshotId && !getSnapshotById(state.baseSnapshotId)) {
@@ -1193,6 +1607,95 @@ const syncCurrentReviewSources = async () => {
   await Promise.all([runVariablesSync(), runTagsSync()]);
 };
 
+const refreshMonitoredChangeHistory = async () => {
+  if (!state.botId || !state.hasAuth) return null;
+  if (!isChangeMonitorEnabled(state.changeMonitorMeta)) return null;
+  try {
+    return await callBG(MessageType.TECH_REVIEW_CHANGE_MONITOR_REFRESH, { botId: state.botId });
+  } catch {
+    return null;
+  }
+};
+
+const setMonitoredChangeHistoryEnabled = async (enabled) => {
+  if (!state.botId) return null;
+  const response = await callBG(MessageType.SET_TECH_REVIEW_CHANGE_MONITOR_ENABLED, {
+    botId: state.botId,
+    enabled: Boolean(enabled),
+  });
+  if (!response.ok) {
+    throw new Error(response.error?.message ?? 'Falha ao atualizar o monitoramento do histórico.');
+  }
+  state.changeMonitorMeta = response.data?.meta ?? state.changeMonitorMeta;
+  return state.changeMonitorMeta;
+};
+
+const enrichComparisonWithMonitoredChanges = async (diff, window) => {
+  const baseDiff = diff ?? {};
+  if (!state.botId || !window?.fromTs || !window?.toTs) {
+    return {
+      ...baseDiff,
+      changeHistory: {
+        coverage: 'none',
+        coverageLabel: 'Sem cobertura',
+        note: 'Intervalo temporal indisponível para consultar o histórico monitorado.',
+        matchedItemsCount: 0,
+      },
+    };
+  }
+
+  if (state.hasAuth) {
+    await refreshMonitoredChangeHistory();
+  }
+
+  const [events, monitorMeta] = await Promise.all([
+    listTechReviewChangeEvents(state.botId, {
+      fromTs: 0,
+      toTs: window.toTs,
+    }),
+    getTechReviewChangeMonitor(state.botId),
+  ]);
+  state.changeMonitorMeta = monitorMeta;
+
+  const itemIds = collectComparisonBlockIds(baseDiff);
+  const lookups = buildLatestChangeLookups(events, window.fromTs, window.toTs);
+  const changedSamples = (Array.isArray(baseDiff.changedSamples) ? baseDiff.changedSamples : []).map((row) =>
+    attachLatestChangeToRow(row, lookups),
+  );
+  const onlyLeftSamples = (Array.isArray(baseDiff.onlyLeftSamples) ? baseDiff.onlyLeftSamples : []).map((row) =>
+    attachLatestChangeToRow(row, lookups),
+  );
+  const onlyRightSamples = (Array.isArray(baseDiff.onlyRightSamples) ? baseDiff.onlyRightSamples : []).map((row) =>
+    attachLatestChangeToRow(row, lookups),
+  );
+
+  const matchedItemsCount = [...changedSamples, ...onlyLeftSamples, ...onlyRightSamples].reduce(
+    (acc, row) => acc + (row?.latestChange ? 1 : 0),
+    0,
+  );
+  const coverage = getChangeHistoryCoverage(monitorMeta, window);
+
+  return {
+    ...baseDiff,
+    changedSamples,
+    onlyLeftSamples,
+    onlyRightSamples,
+    changeHistory: {
+      coverage: coverage.level,
+      coverageLabel: coverage.label,
+      note: coverage.note,
+      matchedItemsCount,
+      totalItems: itemIds.length,
+      fromAt: window.fromAt,
+      toAt: window.toAt,
+      fromTs: window.fromTs,
+      toTs: window.toTs,
+      oldestObservedAt: monitorMeta?.oldestObservedAt ?? null,
+      lastSuccessAt: monitorMeta?.lastSuccessAt ?? null,
+    },
+  };
+};
+
 const captureSnapshot = async () => {
   if (!state.botId || !state.hasAuth || isBusy()) return;
 
@@ -1231,6 +1734,8 @@ const captureSnapshot = async () => {
       items: reviewRecords,
     });
 
+    await setMonitoredChangeHistoryEnabled(true);
+    await refreshMonitoredChangeHistory();
     await loadLocalData();
     state.baseSnapshotId = snapshotId;
     clearComparisonState();
@@ -1300,9 +1805,14 @@ const runComparison = async () => {
       };
 
       const diff = compareFullItemCollections(baseItems, targetItems);
+      const window = buildComparisonWindow({
+        baseSnapshot,
+        currentMeta: meta,
+      });
+      const enrichedDiff = await enrichComparisonWithMonitoredChanges(diff, window);
       clearComparisonState();
       state.comparison = {
-        ...diff,
+        ...enrichedDiff,
         mode: targetMode,
         leftLabel: 'Snapshot base',
         rightLabel: targetInfo.rightLabel,
@@ -1326,9 +1836,14 @@ const runComparison = async () => {
       targetMode = targetInfo.mode || targetMode;
 
       const diff = compareFullItemCollections(baseItems, comparisonItems);
+      const window = buildComparisonWindow({
+        baseSnapshot,
+        targetSnapshot,
+      });
+      const enrichedDiff = await enrichComparisonWithMonitoredChanges(diff, window);
       clearComparisonState();
       state.comparison = {
-        ...diff,
+        ...enrichedDiff,
         mode: targetMode,
         leftLabel: 'Snapshot base',
         rightLabel: targetInfo.rightLabel,
@@ -1341,11 +1856,16 @@ const runComparison = async () => {
       };
     }
 
+    const comparisonNote = String(state.comparison.changeHistory?.note ?? '').trim();
     state.statusKind = 'success';
-    state.statusText =
+    state.statusText = [
       `Comparação concluída. Alterados: ${state.comparison.changedCount} | ` +
-      `Removidos: ${state.comparison.onlyLeftCount} | ` +
-      `Incluídos: ${state.comparison.onlyRightCount}.`;
+        `Removidos: ${state.comparison.onlyLeftCount} | ` +
+        `Incluídos: ${state.comparison.onlyRightCount}.`,
+      comparisonNote,
+    ]
+      .filter(Boolean)
+      .join(' ');
   } catch (error) {
     clearComparisonState();
     state.statusKind = 'error';
@@ -1357,7 +1877,7 @@ const runComparison = async () => {
   }
 };
 
-const exportComparison = () => {
+const exportComparison = async () => {
   if (!state.comparison || isBusy()) return;
 
   state.exporting = true;
@@ -1368,10 +1888,18 @@ const exportComparison = () => {
   try {
     const cmp = state.comparison;
     const changedRows = getFilteredChangedRows();
+    const groups = state.botId ? await getGroupsByBot(state.botId) : [];
+    const groupsById = new Map(
+      (Array.isArray(groups) ? groups : []).map((group) => [
+        String(group?.groupId ?? '').trim(),
+        String(group?.title ?? '').trim() || String(group?.groupId ?? '').trim(),
+      ]),
+    );
     const reviewEntries = buildReviewExportEntries({
       changedRows,
       removedRows: cmp.onlyLeftSamples,
       includedRows: cmp.onlyRightSamples,
+      groupsById,
     });
 
     if (!reviewEntries.length) {
@@ -1403,7 +1931,15 @@ const exportComparison = () => {
       {
         name: REVIEW_SHEET_NAME,
         rows: [
-          ['Tipo do bloco', 'ID do bloco', 'Nome do bloco', 'Descrição'],
+          [
+            'Tipo do bloco',
+            'ID do bloco',
+            'Nome do bloco',
+            'Grupo do bloco',
+            'Descrição',
+            'Usuário da última alteração',
+            'Última alteração monitorada',
+          ],
           ...reviewEntries.map((entry) => entry.cells),
         ],
         afterAppend: ({ worksheet }) => {
@@ -1490,10 +2026,38 @@ const exportComparison = () => {
   }
 };
 
+const onChangeMonitorToggle = async (event) => {
+  if (isBusy()) {
+    render();
+    return;
+  }
+  const nextEnabled = Boolean(event?.target?.checked);
+  state.statusKind = 'info';
+  state.statusText = nextEnabled
+    ? 'Ativando monitoramento do histórico...'
+    : 'Pausando monitoramento do histórico...';
+  render();
+
+  try {
+    await setMonitoredChangeHistoryEnabled(nextEnabled);
+    await loadLocalData();
+    state.statusKind = 'success';
+    state.statusText = nextEnabled
+      ? 'Monitoramento do histórico ativado.'
+      : 'Monitoramento do histórico pausado.';
+  } catch (error) {
+    state.statusKind = 'error';
+    state.statusText = String(error?.message ?? error);
+  } finally {
+    render();
+  }
+};
+
 const bindEvents = () => {
   if (els.captureBtn) on(els.captureBtn, 'click', () => captureSnapshot());
   if (els.compareBtn) on(els.compareBtn, 'click', () => runComparison());
   if (els.exportBtn) on(els.exportBtn, 'click', () => exportComparison());
+  if (els.changeMonitorToggle) on(els.changeMonitorToggle, 'change', onChangeMonitorToggle);
 
   if (els.baseSnapshot) {
     on(els.baseSnapshot, 'change', (event) => {
@@ -1576,6 +2140,10 @@ const init = async () => {
 
   try {
     await Promise.all([loadContext(), loadStatus()]);
+    if (state.botId && state.hasAuth && Array.isArray(state.snapshots) && state.snapshots.length > 0) {
+      await refreshMonitoredChangeHistory();
+      await loadLocalData();
+    }
   } finally {
     state.loading = false;
     render();

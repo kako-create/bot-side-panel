@@ -1,7 +1,7 @@
 import { normalizeText } from '../shared/utils.js';
 
 const DB_NAME = 'bot_side_panel_db_v1';
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 
 const STORE_META = 'meta';
 const STORE_GROUPS = 'groups';
@@ -13,6 +13,8 @@ const STORE_INTENTS = 'bot_intents';
 const STORE_LEX_INTENTS = 'bot_lex_intents';
 const STORE_DEBUG = 'debug_network_logs';
 const STORE_TECH_REVIEW = 'tech_review_snapshots';
+const STORE_TECH_REVIEW_CHANGE_LOG = 'tech_review_change_log';
+const STORE_TECH_REVIEW_CHANGE_MONITOR = 'tech_review_change_monitor';
 
 const TECH_REVIEW_META_RECORD_KEY = '__meta__';
 const TECH_REVIEW_KIND_META = 'meta';
@@ -92,6 +94,17 @@ const openDb = () => {
           store.createIndex('by_bot_kind', ['botId', 'kind'], { unique: false });
           store.createIndex('by_bot_snapshot', ['botId', 'snapshotId'], { unique: false });
           store.createIndex('by_bot_snapshot_kind', ['botId', 'snapshotId', 'kind'], { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_TECH_REVIEW_CHANGE_LOG)) {
+          const store = db.createObjectStore(STORE_TECH_REVIEW_CHANGE_LOG, {
+            keyPath: ['botId', 'changeId'],
+          });
+          store.createIndex('by_bot', 'botId', { unique: false });
+          store.createIndex('by_bot_updated', ['botId', 'updatedAtTs'], { unique: false });
+          store.createIndex('by_bot_target_updated', ['botId', 'targetId', 'updatedAtTs'], { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_TECH_REVIEW_CHANGE_MONITOR)) {
+          db.createObjectStore(STORE_TECH_REVIEW_CHANGE_MONITOR, { keyPath: 'botId' });
         }
       };
       request.onsuccess = () => resolve(request.result);
@@ -423,6 +436,87 @@ export const clearLexIntentsData = async (botId) => {
   await deleteByIndex(db, STORE_LEX_INTENTS, 'by_bot', botId);
 };
 
+export const saveTechReviewChangeEvents = async (botId, events) =>
+  withStore(STORE_TECH_REVIEW_CHANGE_LOG, 'readwrite', (store) => {
+    for (const event of Array.isArray(events) ? events : []) {
+      if (!event?.changeId) continue;
+      store.put({ ...event, botId });
+    }
+  });
+
+export const listTechReviewChangeEvents = async (
+  botId,
+  { fromTs = 0, toTs = Number.MAX_SAFE_INTEGER, targetIds = null, limit = 0 } = {},
+) => {
+  const resolvedBotId = String(botId ?? '').trim();
+  if (!resolvedBotId) return [];
+  const from = Number.isFinite(Number(fromTs)) ? Math.max(0, Number(fromTs)) : 0;
+  const to = Number.isFinite(Number(toTs)) ? Math.max(from, Number(toTs)) : Number.MAX_SAFE_INTEGER;
+  const targetSet = Array.isArray(targetIds) ? new Set(targetIds.map((value) => String(value ?? '').trim()).filter(Boolean)) : null;
+
+  return withStore(STORE_TECH_REVIEW_CHANGE_LOG, 'readonly', (store) =>
+    new Promise((resolve, reject) => {
+      const results = [];
+      const index = store.index('by_bot_updated');
+      const range = IDBKeyRange.bound([resolvedBotId, from], [resolvedBotId, to]);
+      const req = index.openCursor(range, 'prev');
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) {
+          resolve(results);
+          return;
+        }
+        const value = cursor.value;
+        const eventTargetIds = new Set(
+          [
+            value?.targetId,
+            ...(Array.isArray(value?.targetIds) ? value.targetIds : []),
+          ]
+            .map((candidate) => String(candidate ?? '').trim())
+            .filter(Boolean),
+        );
+        if (targetSet && !Array.from(eventTargetIds).some((candidate) => targetSet.has(candidate))) {
+          cursor.continue();
+          return;
+        }
+        results.push(value);
+        if (limit && results.length >= limit) {
+          resolve(results);
+          return;
+        }
+        cursor.continue();
+      };
+      req.onerror = () => reject(req.error || new Error('IDB_CURSOR_ERROR'));
+    }),
+  );
+};
+
+export const saveTechReviewChangeMonitor = async (meta) =>
+  withStore(STORE_TECH_REVIEW_CHANGE_MONITOR, 'readwrite', (store) => {
+    if (!meta?.botId) return;
+    store.put(meta);
+  });
+
+export const getTechReviewChangeMonitor = async (botId) => {
+  const resolvedBotId = String(botId ?? '').trim();
+  if (!resolvedBotId) return null;
+  return withStore(STORE_TECH_REVIEW_CHANGE_MONITOR, 'readonly', (store) =>
+    new Promise((resolve, reject) => {
+      const req = store.get(resolvedBotId);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error || new Error('IDB_GET_ERROR'));
+    }),
+  );
+};
+
+export const clearTechReviewChangeData = async (botId) => {
+  const resolvedBotId = String(botId ?? '').trim();
+  if (!resolvedBotId) return;
+  const db = await openDb();
+  await deleteByIndex(db, STORE_TECH_REVIEW_CHANGE_LOG, 'by_bot', resolvedBotId);
+  await withStore(STORE_TECH_REVIEW_CHANGE_MONITOR, 'readwrite', (store) => store.delete(resolvedBotId));
+};
+
 const stripTechReviewRecord = (record) => {
   if (!record || typeof record !== 'object') return record;
   const { recordKey, kind, ...rest } = record;
@@ -539,6 +633,8 @@ export const clearBotData = async (botId) => {
   await deleteByIndex(db, STORE_INTENTS, 'by_bot', botId);
   await deleteByIndex(db, STORE_LEX_INTENTS, 'by_bot', botId);
   await deleteByIndex(db, STORE_TECH_REVIEW, 'by_bot', botId);
+  await deleteByIndex(db, STORE_TECH_REVIEW_CHANGE_LOG, 'by_bot', botId);
+  await withStore(STORE_TECH_REVIEW_CHANGE_MONITOR, 'readwrite', (store) => store.delete(botId));
   await withStore(STORE_META, 'readwrite', (store) => store.delete(botId));
 };
 

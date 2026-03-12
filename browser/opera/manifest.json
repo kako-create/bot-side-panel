@@ -32,7 +32,7 @@
     "48": "assets/logo.png",
     "128": "assets/logo.png"
   },
-  "permissions": ["storage", "activeTab"],
+  "permissions": ["storage", "activeTab", "alarms"],
   "host_permissions": [
     "https://api.bots.digitalcontact.cloud/*",
     "https://new.boteria.com.br/*",

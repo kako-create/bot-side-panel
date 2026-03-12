@@ -4,12 +4,29 @@ import { DEFAULT_MODE, MODE_BOT, MODE_URA, resolveContextFromUrl, normalizeMode 
 import { USER_SETTINGS_KEY, DEFAULT_USER_SETTINGS, sanitizeUserSettings, mergeUserSettings } from '../config/userSettings.js';
 import { MessageType, ErrorCode, respondOk, respondErr } from '../services/messaging.js';
 import { safeGet, safeSet, safeRemove } from '../services/storage.js';
-import { listMetas, clearBotData, getMeta, saveMeta, addDebugLog, listDebugLogs, clearDebugLogs, countDebugLogs } from '../data/db.js';
+import {
+  listMetas,
+  clearBotData,
+  getMeta,
+  saveMeta,
+  addDebugLog,
+  listDebugLogs,
+  clearDebugLogs,
+  countDebugLogs,
+  listTechReviewSnapshots,
+  getTechReviewChangeMonitor,
+} from '../data/db.js';
 import { startSync, getSyncState, cancelSync } from '../services/syncManager.js';
 import { syncBotVariables } from '../services/variablesSync.js';
 import { syncBotTags } from '../services/tagsSync.js';
 import { syncBotIntents } from '../services/intentsSync.js';
 import { syncLexIntents } from '../services/lexIntentsSync.js';
+import {
+  syncTechReviewChangeHistory,
+  saveTechReviewChangeMonitorError,
+  saveTechReviewChangeMonitorStatus,
+  setTechReviewChangeMonitorEnabled,
+} from '../services/techReviewChangesMonitor.js';
 import {
   fetchBuilderPendingPage,
   fetchBuilderTrackingDetails,
@@ -18,6 +35,8 @@ import {
 
 const CONTEXT_KEY = 'bot_sp_context_v1';
 const AUTH_SESSION_KEY = 'bot_sp_auth_v1';
+const TECH_REVIEW_CHANGE_MONITOR_ALARM = 'bot_sp_tech_review_change_monitor';
+const TECH_REVIEW_CHANGE_MONITOR_INTERVAL_MINUTES = 1;
 
 let contextState = {
   botId: null,
@@ -39,6 +58,7 @@ let userSettingsState = { ...DEFAULT_USER_SETTINGS };
 
 let lastAutoSyncBotId = null;
 let storageError = null;
+let techReviewChangeMonitorPromise = null;
 
 const isAuthSessionValid = (sessionAuth) => {
   if (!sessionAuth?.authorization) return false;
@@ -621,10 +641,151 @@ const triggerAutoSync = async (context = contextState) => {
   }
 };
 
+const ensureTechReviewChangeMonitorAlarm = () => {
+  try {
+    chrome.alarms?.create?.(TECH_REVIEW_CHANGE_MONITOR_ALARM, {
+      periodInMinutes: TECH_REVIEW_CHANGE_MONITOR_INTERVAL_MINUTES,
+    });
+  } catch {
+    // ignorar
+  }
+};
+
+const collectMonitorCandidateBotIds = async () => {
+  const botIds = new Set();
+  const entries = Array.from(contextByTabState.entries());
+  for (const [tabId] of entries) {
+    const response = await requestContextFromTab(tabId);
+    if (!response?.url) {
+      contextByTabState.delete(tabId);
+      continue;
+    }
+
+    const parsed = resolveContextFromUrl(response.url);
+    const parsedMode = normalizeMode(parsed?.mode);
+    if (!parsed?.botId || parsedMode !== MODE_BOT) {
+      contextByTabState.delete(tabId);
+      continue;
+    }
+
+    setTabContext(tabId, {
+      botId: parsed.botId,
+      mode: parsedMode,
+      appBaseUrl: parsed?.appBaseUrl ?? getTabContext(tabId)?.appBaseUrl ?? null,
+      updatedAt: new Date().toISOString(),
+    });
+    botIds.add(parsed.botId);
+  }
+
+  const fallbackUpdatedAtTs = new Date(contextState?.updatedAt ?? '').getTime();
+  const fallbackIsFresh = Number.isFinite(fallbackUpdatedAtTs) && fallbackUpdatedAtTs >= Date.now() - 10 * 60 * 1000;
+  if (
+    botIds.size === 0 &&
+    fallbackIsFresh &&
+    contextState?.botId &&
+    normalizeMode(contextState?.mode) === MODE_BOT
+  ) {
+    botIds.add(String(contextState.botId));
+  }
+
+  return Array.from(botIds);
+};
+
+const botHasReviewSnapshots = async (botId) => {
+  const snapshots = await listTechReviewSnapshots(botId);
+  return Array.isArray(snapshots) && snapshots.length > 0;
+};
+
+const runTechReviewChangeMonitor = async ({ botIds = null } = {}) => {
+  if (techReviewChangeMonitorPromise) return techReviewChangeMonitorPromise;
+
+  techReviewChangeMonitorPromise = (async () => {
+    if (!isAuthSessionValid(authSessionState)) {
+      const requestedBotIds = Array.isArray(botIds) ? botIds : [];
+      await Promise.all(
+        requestedBotIds.map((botId) =>
+          saveTechReviewChangeMonitorStatus(botId, {
+            status: 'paused',
+            reason: 'no_auth',
+          }),
+        ),
+      );
+      return { ok: true, skipped: 'auth_unavailable', results: [] };
+    }
+
+    const openBotIds = await collectMonitorCandidateBotIds();
+    const requested = Array.isArray(botIds) && botIds.length
+      ? botIds.map((value) => String(value ?? '').trim()).filter(Boolean)
+      : openBotIds;
+    const uniqueRequestedBotIds = Array.from(new Set(requested));
+    const results = [];
+
+    for (const botId of uniqueRequestedBotIds) {
+      const monitorMeta = await getTechReviewChangeMonitor(botId);
+      if (monitorMeta?.monitoringEnabled === false) {
+        await saveTechReviewChangeMonitorStatus(botId, {
+          status: 'paused',
+          reason: 'manual',
+        });
+        results.push({ botId, ok: true, skipped: 'manual_pause' });
+        continue;
+      }
+
+      if (!openBotIds.includes(botId)) {
+        await saveTechReviewChangeMonitorStatus(botId, {
+          monitoringEnabled: monitorMeta?.monitoringEnabled !== false,
+          status: 'paused',
+          reason: 'no_builder',
+        });
+        results.push({ botId, ok: true, skipped: 'builder_closed' });
+        continue;
+      }
+
+      if (!(await botHasReviewSnapshots(botId))) {
+        await saveTechReviewChangeMonitorStatus(botId, {
+          monitoringEnabled: monitorMeta?.monitoringEnabled !== false,
+          status: 'paused',
+          reason: 'no_snapshot',
+        });
+        results.push({ botId, ok: true, skipped: 'no_snapshot' });
+        continue;
+      }
+
+      try {
+        const result = await syncTechReviewChangeHistory({
+          botId,
+          authorization: authSessionState.authorization,
+        });
+        results.push({ botId, ok: true, ...result });
+      } catch (error) {
+        await saveTechReviewChangeMonitorError(botId, error);
+        results.push({ botId, ok: false, error: String(error?.message ?? error) });
+      }
+    }
+
+    return { ok: true, results };
+  })().finally(() => {
+    techReviewChangeMonitorPromise = null;
+  });
+
+  return techReviewChangeMonitorPromise;
+};
+
 const initPromise = initState();
+
+ensureTechReviewChangeMonitorAlarm();
 
 if (chrome.sidePanel?.setPanelBehavior) {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+}
+
+if (chrome.alarms?.onAlarm) {
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm?.name !== TECH_REVIEW_CHANGE_MONITOR_ALARM) return;
+    initPromise
+      .then(() => runTechReviewChangeMonitor())
+      .catch(() => undefined);
+  });
 }
 
 if (chrome.tabs?.onRemoved) {
@@ -647,7 +808,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case MessageType.BOT_AUTH: {
       initPromise.then(() => {
         if (typeof message.token === 'string' && message.token.toLowerCase().startsWith('bearer ')) {
-          updateAuthSession(message.token).then(triggerAutoSync);
+          updateAuthSession(message.token).then(async () => {
+            await triggerAutoSync();
+            await runTechReviewChangeMonitor().catch(() => undefined);
+          });
           respond(respondOk({ ok: true }));
           return;
         }
@@ -659,7 +823,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       initPromise.then(() => {
         const senderTabId = toTabId(sender?.tab?.id);
         updateContextFromUrl(message.url, { tabId: senderTabId }).then((result) => {
-          if (result?.changed && result.context) triggerAutoSync(result.context);
+          if (result?.changed && result.context) {
+            triggerAutoSync(result.context);
+            runTechReviewChangeMonitor().catch(() => undefined);
+          }
         });
         respond(respondOk({ ok: true }));
       });
@@ -936,6 +1103,79 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             respondErr(
               code,
               'Falha ao buscar detalhes da alteração.',
+              String(error?.message ?? error),
+            ),
+          );
+        }
+      });
+      return true;
+    }
+    case MessageType.TECH_REVIEW_CHANGE_MONITOR_REFRESH: {
+      initPromise.then(async () => {
+        const active = await resolveContextForActiveTab({ refreshFromContent: true });
+        const requestedBotId = String(message?.botId ?? active.context?.botId ?? contextState.botId ?? '').trim();
+        if (!requestedBotId) {
+          respond(respondErr(ErrorCode.NOT_READY, 'botId ausente.'));
+          return;
+        }
+        try {
+          const result = await runTechReviewChangeMonitor({ botIds: [requestedBotId] });
+          respond(respondOk(result));
+        } catch (error) {
+          respond(
+            respondErr(
+              ErrorCode.INTERNAL,
+              'Falha ao atualizar histórico monitorado.',
+              String(error?.message ?? error),
+            ),
+          );
+        }
+      });
+      return true;
+    }
+    case MessageType.GET_TECH_REVIEW_CHANGE_MONITOR_STATUS: {
+      initPromise.then(async () => {
+        const active = await resolveContextForActiveTab({ refreshFromContent: true });
+        const requestedBotId = String(message?.botId ?? active.context?.botId ?? contextState.botId ?? '').trim();
+        if (!requestedBotId) {
+          respond(respondErr(ErrorCode.NOT_READY, 'botId ausente.'));
+          return;
+        }
+        try {
+          const meta = await getTechReviewChangeMonitor(requestedBotId);
+          respond(respondOk({ meta }));
+        } catch (error) {
+          respond(
+            respondErr(
+              ErrorCode.INTERNAL,
+              'Falha ao ler status do histórico monitorado.',
+              String(error?.message ?? error),
+            ),
+          );
+        }
+      });
+      return true;
+    }
+    case MessageType.SET_TECH_REVIEW_CHANGE_MONITOR_ENABLED: {
+      initPromise.then(async () => {
+        const active = await resolveContextForActiveTab({ refreshFromContent: true });
+        const requestedBotId = String(message?.botId ?? active.context?.botId ?? contextState.botId ?? '').trim();
+        if (!requestedBotId) {
+          respond(respondErr(ErrorCode.NOT_READY, 'botId ausente.'));
+          return;
+        }
+        try {
+          const meta = await setTechReviewChangeMonitorEnabled(requestedBotId, Boolean(message?.enabled));
+          if (meta?.monitoringEnabled) {
+            await runTechReviewChangeMonitor({ botIds: [requestedBotId] }).catch(() => undefined);
+          }
+          const freshMeta = await getTechReviewChangeMonitor(requestedBotId);
+          respond(respondOk({ meta: freshMeta }));
+        } catch (error) {
+          respond(
+            respondErr(
+              ErrorCode.INTERNAL,
+              'Falha ao atualizar monitoramento do histórico.',
               String(error?.message ?? error),
             ),
           );
