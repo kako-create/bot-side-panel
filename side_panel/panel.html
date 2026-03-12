@@ -549,6 +549,73 @@
 	        </section>
 	      </template>
 
+	      <template id="tpl-screen-alteracoes">
+	        <section class="card surface status-card">
+	          <div class="section-header">
+	            <span class="semaforo" id="alteracoes-light"></span>
+	            <h2 class="text-section-title">Alterações pendentes</h2>
+	          </div>
+	          <div class="section-body">
+	            <div class="status-grid">
+	              <div class="status-row">
+	                <span class="label">Bot</span>
+	                <strong id="alteracoes-bot">-</strong>
+	              </div>
+	            </div>
+
+	            <div class="status-metrics status-metrics--tight">
+	              <div class="metric">
+	                <span>Token</span>
+	                <strong id="alteracoes-auth">-</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Full sync</span>
+	                <strong id="alteracoes-sync">-</strong>
+	              </div>
+	            </div>
+
+	            <div class="status-metrics">
+	              <div class="metric">
+	                <span>Pendências</span>
+	                <strong id="alteracoes-total">0</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Usuários</span>
+	                <strong id="alteracoes-users">0</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Ações</span>
+	                <strong id="alteracoes-actions">0</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Última leitura</span>
+	                <strong id="alteracoes-last-update">-</strong>
+	              </div>
+	            </div>
+
+	            <div class="actions actions-group">
+	              <button id="alteracoes-refresh" class="btn btn--primary" type="button">Atualizar</button>
+	            </div>
+
+	            <p class="settings-feedback settings-feedback--info" id="alteracoes-feedback" hidden></p>
+	          </div>
+	        </section>
+
+	        <section class="card surface">
+	          <div class="section-header">
+	            <h2 class="text-section-title">Resultado</h2>
+	            <div class="section-actions">
+	              <button id="alteracoes-groups-toggle" class="btn btn--ghost btn--sm" type="button" disabled>
+	                Abrir grupos
+	              </button>
+	            </div>
+	          </div>
+	          <div class="section-body">
+	            <div id="alteracoes-results" class="search-results"></div>
+	          </div>
+	        </section>
+	      </template>
+
 	      <template id="tpl-screen-review-tecnica">
 	        <section class="card surface">
 	          <div class="section-header">

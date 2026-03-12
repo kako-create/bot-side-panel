@@ -1,5 +1,9 @@
 import { apiEndpoints } from '../config/apiConfig.js';
-import { API_FETCH_TIMEOUT_MS, API_RETRY_BASE_DELAY_MS } from '../config/limits.js';
+import {
+  ALTERACOES_PAGE_LIMIT,
+  API_FETCH_TIMEOUT_MS,
+  API_RETRY_BASE_DELAY_MS,
+} from '../config/limits.js';
 
 const delay = (ms, signal) =>
   new Promise((resolve, reject) => {
@@ -56,10 +60,13 @@ const fetchWithRetry = async (url, options, retries = 2) => {
 const parseJson = async (response) => {
   if (!response.ok) {
     const text = await response.text();
-    if (response.status === 419) {
-      throw new Error('Token de autorização expirado. Recarregue a página do Boteria e tente novamente.');
-    }
-    throw new Error(`HTTP ${response.status}: ${text}`);
+    const error =
+      response.status === 419
+        ? new Error('Token de autorização expirado. Recarregue a página do Boteria e tente novamente.')
+        : new Error(`HTTP ${response.status}: ${text}`);
+    error.status = response.status;
+    error.body = text;
+    throw error;
   }
   const payload = await response.json();
   if (typeof payload !== 'string') return payload;
@@ -197,6 +204,45 @@ export const fetchBotTags = async (botId, authorization, mode = 'bot', signal) =
     return [...botTags, ...globalTags];
   }
   return normalizeList(payload, ['tags', 'items', 'docs']);
+};
+
+export const fetchBuilderPendingPage = async (
+  botId,
+  authorization,
+  { page = 1, limit = ALTERACOES_PAGE_LIMIT, signal } = {},
+) => {
+  if (!botId) {
+    throw new Error('botId ausente para buscar alterações pendentes.');
+  }
+  if (!authorization || !authorization.toLowerCase().startsWith('bearer ')) {
+    throw new Error('Token de autorização inválido ou ausente.');
+  }
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+  });
+  const response = await fetchWithRetry(apiEndpoints.builderPending(botId, params.toString()), {
+    headers: { Authorization: authorization },
+    signal,
+  });
+  return parseJson(response);
+};
+
+export const fetchBuilderTrackingDetails = async (botId, apiId, authorization, signal) => {
+  if (!botId) {
+    throw new Error('botId ausente para buscar detalhes da alteração.');
+  }
+  if (!apiId) {
+    throw new Error('apiId ausente para buscar detalhes da alteração.');
+  }
+  if (!authorization || !authorization.toLowerCase().startsWith('bearer ')) {
+    throw new Error('Token de autorização inválido ou ausente.');
+  }
+  const response = await fetchWithRetry(apiEndpoints.builderTrackingDetails(botId, apiId), {
+    headers: { Authorization: authorization },
+    signal,
+  });
+  return parseJson(response);
 };
 
 export const fetchBotAiIntents = async (botId, authorization, signal) => {

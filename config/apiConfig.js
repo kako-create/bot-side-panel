@@ -18,6 +18,10 @@ export const apiEndpoints = {
   rootItems: (botId) => buildApiUrl(`/bots/${botId}/items`),
   subflowItems: (botId, groupId) => buildApiUrl(`/bots/${botId}/items-subflow/${groupId}`),
   itemsSummary: (botId) => buildApiUrl(`/bots/${botId}/items-summary`),
+  builderPending: (botId, params = '') =>
+    buildApiUrl(`/bots/${botId}/builder-pending${params ? `?${params}` : ''}`),
+  builderTrackingDetails: (botId, apiId) =>
+    buildApiUrl(`/bots/${botId}/builder-tracking/details/${apiId}`),
   botVariables: (botId, mode = 'bot') =>
     buildApiUrl(mode === 'ura' ? `/ivr/variables/${botId}` : `/bots/variable/${botId}`),
   botTags: (botId, mode = 'bot') =>

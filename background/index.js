@@ -10,7 +10,11 @@ import { syncBotVariables } from '../services/variablesSync.js';
 import { syncBotTags } from '../services/tagsSync.js';
 import { syncBotIntents } from '../services/intentsSync.js';
 import { syncLexIntents } from '../services/lexIntentsSync.js';
-import { fetchUraAiAgentFunctions } from '../services/apiClient.js';
+import {
+  fetchBuilderPendingPage,
+  fetchBuilderTrackingDetails,
+  fetchUraAiAgentFunctions,
+} from '../services/apiClient.js';
 
 const CONTEXT_KEY = 'bot_sp_context_v1';
 const AUTH_SESSION_KEY = 'bot_sp_auth_v1';
@@ -809,6 +813,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             context,
             tabId: active.tabId,
             hasAuth: Boolean(authSessionState.authorization),
+            authorization: message?.includeAuth ? authSessionState.authorization : null,
             authUpdatedAt: authSessionState.updatedAt,
             storageError,
           }),
@@ -869,6 +874,72 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case MessageType.GET_STATUS: {
       initPromise.then(() => {
         respond(respondOk({ status: getSyncState() }));
+      });
+      return true;
+    }
+    case MessageType.FETCH_PENDING_CHANGES_PAGE: {
+      initPromise.then(async () => {
+        const active = await resolveContextForActiveTab({ refreshFromContent: true });
+        const requestedBotId = message?.botId ?? active.context?.botId ?? contextState.botId;
+        if (!requestedBotId || !authSessionState.authorization) {
+          respond(respondErr(ErrorCode.NOT_READY, 'botId ou token ausente.'));
+          return;
+        }
+
+        try {
+          const payload = await fetchBuilderPendingPage(requestedBotId, authSessionState.authorization, {
+            page: message?.page,
+            limit: message?.limit,
+          });
+          respond(respondOk(payload));
+        } catch (error) {
+          const status = Number(error?.status ?? 0);
+          const code =
+            status === 401 || status === 419 ? ErrorCode.UNAUTHORIZED : ErrorCode.INTERNAL;
+          respond(
+            respondErr(
+              code,
+              'Falha ao buscar alterações pendentes.',
+              String(error?.message ?? error),
+            ),
+          );
+        }
+      });
+      return true;
+    }
+    case MessageType.FETCH_PENDING_CHANGE_DETAILS: {
+      initPromise.then(async () => {
+        const active = await resolveContextForActiveTab({ refreshFromContent: true });
+        const requestedBotId = message?.botId ?? active.context?.botId ?? contextState.botId;
+        const apiId = String(message?.apiId ?? '').trim();
+        if (!requestedBotId || !authSessionState.authorization) {
+          respond(respondErr(ErrorCode.NOT_READY, 'botId ou token ausente.'));
+          return;
+        }
+        if (!apiId) {
+          respond(respondErr(ErrorCode.INVALID_REQUEST, 'apiId ausente.'));
+          return;
+        }
+
+        try {
+          const payload = await fetchBuilderTrackingDetails(
+            requestedBotId,
+            apiId,
+            authSessionState.authorization,
+          );
+          respond(respondOk(payload));
+        } catch (error) {
+          const status = Number(error?.status ?? 0);
+          const code =
+            status === 401 || status === 419 ? ErrorCode.UNAUTHORIZED : ErrorCode.INTERNAL;
+          respond(
+            respondErr(
+              code,
+              'Falha ao buscar detalhes da alteração.',
+              String(error?.message ?? error),
+            ),
+          );
+        }
       });
       return true;
     }

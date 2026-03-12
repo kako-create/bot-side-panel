@@ -12,6 +12,7 @@ Reduzir tempo de análise/manutenção de fluxos, oferecendo no side panel:
 - busca rápida e busca avançada em payload;
 - sincronização e análise de variáveis/TAGs;
 - comparação entre dois registros sincronizados;
+- consulta de alterações pendentes ainda não publicadas;
 - review técnica por snapshots do mesmo BOT/URA;
 - exportação de relatórios em Excel (`.xlsx`);
 - abertura direta do bloco no builder.
@@ -91,7 +92,21 @@ Reduzir tempo de análise/manutenção de fluxos, oferecendo no side panel:
 - links para abrir bloco A/B no builder.
 - Ignora campos instáveis de comparação como `positionOnScreen` e `updatedAt`, além de IDs.
 
-### 8. Tela Review Técnica
+### 8. Tela Alterações Pendentes
+
+- Disponível apenas para `BOT`.
+- Consulta alterações ainda não publicadas/aplicadas do builder atual.
+- Busca dados no endpoint:
+  - `GET /bots/{botId}/builder-pending?page={page}&limit={limit}`
+- Agrupa resultados por:
+  - usuário;
+  - ação (`insert`, `update`, `delete`).
+- Quando existe full sync local, enriquece a listagem com título/descrição dos blocos já salvos no cache local.
+- Permite abrir detalhes sob demanda por alteração usando o endpoint:
+  - `GET /bots/{botId}/builder-tracking/details/{apiId}`
+- Exibe diff textual e diff por chave quando o payload detalhado da alteração estiver disponível.
+
+### 9. Tela Review Técnica
 
 - Menu separado da tela `Comparação`.
 - Permite criar snapshots imutáveis por BOT/URA, sempre vinculados ao mesmo `botId`.
@@ -114,7 +129,7 @@ Reduzir tempo de análise/manutenção de fluxos, oferecendo no side panel:
   - aba `Script` apenas quando houver blocos de Script alterados/incluídos com mais de 1 linha útil.
 - O arquivo `.xlsx` usa hyperlinks internos entre a aba principal e as abas detalhadas (`API`/`Script`).
 
-### 9. Tela Armazenamento
+### 10. Tela Armazenamento
 
 - Lista registros sincronizados, com métricas e datas.
 - Fixar/desfixar e remover registro.
@@ -137,7 +152,7 @@ Reduzir tempo de análise/manutenção de fluxos, oferecendo no side panel:
 - `data/`:
   - persistência local em IndexedDB (metas, grupos, itens, variáveis, TAGs, condições/intenções e snapshots da review técnica).
 - `side_panel/screens/`:
-  - telas principais `consulta`, `variaveis`, `tags`, `ia`, `comparacao`, `reviewTecnica`, `armazenamento`.
+  - telas principais `consulta`, `variaveis`, `tags`, `ia`, `comparacao`, `alteracoes`, `reviewTecnica`, `armazenamento`.
 - `side_panel/vendor/`:
   - dependências embarcadas no painel, incluindo `SheetJS` para exportação `.xlsx`.
 

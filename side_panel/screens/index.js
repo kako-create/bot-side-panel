@@ -4,6 +4,7 @@ import { screenTags } from './tags.js';
 import { screenIa } from './ia.js';
 import { screenFuncoes } from './funcoes.js';
 import { screenComparacao } from './comparacao.js';
+import { screenAlteracoes } from './alteracoes.js';
 import { screenReviewTecnica } from './reviewTecnica.js';
 import { screenArmazenamento } from './armazenamento.js';
 import { screenAcessoRapido } from './acessoRapido.js';
@@ -17,6 +18,7 @@ export const screens = [
   screenIa,
   screenFuncoes,
   screenComparacao,
+  screenAlteracoes,
   screenReviewTecnica,
   screenArmazenamento,
   screenAcessoRapido,
