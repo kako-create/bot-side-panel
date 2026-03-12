@@ -61,7 +61,25 @@ Reduzir tempo de análise/manutenção de fluxos, oferecendo no side panel:
 - Exibe aviso quando full sync está mais antigo que a sync de TAGs, incluindo diferença de tempo.
 - Seções com botão de recolher/exibir.
 
-### 6. Tela Comparação
+### 6. Tela I.A.
+
+- Disponível apenas para `BOT`.
+- Possui dois blocos independentes:
+  - `Condições`
+  - `Intenções`
+- `Condições`:
+  - sincroniza intents/condições de IA do bot;
+  - agrupa os registros por destino;
+  - mostra nome, destino, tipo, confiança e status ativo/inativo;
+  - permite exportação para Excel.
+- `Intenções`:
+  - sincroniza intenções Lex e suas frases de treino;
+  - agrupa por intenção;
+  - exibe total de intenções e total de frases;
+  - permite exportação para Excel.
+- As seções podem ser recolhidas e os grupos podem ser abertos/fechados em lote.
+
+### 7. Tela Comparação
 
 - Compara dois registros com full sync salvo (selecionados nos combos).
 - Bloqueia comparação BOT x URA.
@@ -73,7 +91,7 @@ Reduzir tempo de análise/manutenção de fluxos, oferecendo no side panel:
 - links para abrir bloco A/B no builder.
 - Ignora campos instáveis de comparação como `positionOnScreen` e `updatedAt`, além de IDs.
 
-### 7. Tela Review Técnica
+### 8. Tela Review Técnica
 
 - Menu separado da tela `Comparação`.
 - Permite criar snapshots imutáveis por BOT/URA, sempre vinculados ao mesmo `botId`.
@@ -96,7 +114,7 @@ Reduzir tempo de análise/manutenção de fluxos, oferecendo no side panel:
   - aba `Script` apenas quando houver blocos de Script alterados/incluídos com mais de 1 linha útil.
 - O arquivo `.xlsx` usa hyperlinks internos entre a aba principal e as abas detalhadas (`API`/`Script`).
 
-### 8. Tela Armazenamento
+### 9. Tela Armazenamento
 
 - Lista registros sincronizados, com métricas e datas.
 - Fixar/desfixar e remover registro.
@@ -115,11 +133,11 @@ Reduzir tempo de análise/manutenção de fluxos, oferecendo no side panel:
 - `background/`:
   - gerencia contexto, sessão de auth, sync e mensagens.
 - `services/`:
-  - cliente de API e serviços de sincronização (summary/full/variáveis/TAGs).
+  - cliente de API e serviços de sincronização (summary/full/variáveis/TAGs/IA).
 - `data/`:
-  - persistência local em IndexedDB (metas, grupos, itens, variáveis, TAGs e snapshots da review técnica).
+  - persistência local em IndexedDB (metas, grupos, itens, variáveis, TAGs, condições/intenções e snapshots da review técnica).
 - `side_panel/screens/`:
-  - telas principais `consulta`, `variaveis`, `tags`, `comparacao`, `reviewTecnica`, `armazenamento`.
+  - telas principais `consulta`, `variaveis`, `tags`, `ia`, `comparacao`, `reviewTecnica`, `armazenamento`.
 - `side_panel/vendor/`:
   - dependências embarcadas no painel, incluindo `SheetJS` para exportação `.xlsx`.
 
