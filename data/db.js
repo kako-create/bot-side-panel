@@ -696,7 +696,7 @@ export const buildSummaryItemRecord = (item, { groupId, level } = {}) => {
   };
 };
 
-export const buildFullItemRecord = (item, { groupId } = {}) => {
+export const buildFullItemRecord = (item, { groupId, groupTitle, flowExchangeId } = {}) => {
   const title = item?.title ?? '';
   const type = item?.type ?? '';
   return {
@@ -706,6 +706,8 @@ export const buildFullItemRecord = (item, { groupId } = {}) => {
     type,
     typeFold: normalizeText(type),
     groupId,
+    groupTitle: String(groupTitle ?? '').trim(),
+    flowExchangeId: String(flowExchangeId ?? '').trim(),
     payload: item ?? null,
   };
 };

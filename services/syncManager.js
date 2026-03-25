@@ -1,4 +1,4 @@
-import { fetchItemsSummary, fetchRootItems, fetchSubflowItems } from './apiClient.js';
+import { fetchItemsSummary, fetchRootItems, fetchSubflowItems, fetchWhatsAppFlowItems } from './apiClient.js';
 import {
   buildGroupRecord,
   buildSummaryItemRecord,
@@ -105,6 +105,89 @@ const detectModeFromItems = (items) => {
   if (hasBot) return MODE_BOT;
   return null;
 };
+
+const normalizeCompactText = (value) => normalizeText(value).replace(/[^a-z0-9]/g, '');
+
+const getItemId = (item) => {
+  const raw = item?._id ?? item?.id ?? item?.itemId ?? null;
+  if (raw === null || raw === undefined) return '';
+  return String(raw).trim();
+};
+
+const getItemTitle = (item) => {
+  const raw = item?.title ?? item?.name ?? item?.label ?? '';
+  return String(raw ?? '').trim();
+};
+
+const isGroupContainerType = (item) => {
+  const compactType = normalizeCompactText(item?.type ?? '');
+  return compactType === 'group' || compactType === 'grupo' || compactType === 'subflow';
+};
+
+const isWhatsAppFlowType = (item) => normalizeCompactText(item?.type ?? '') === 'whatsappflow';
+
+const getExchangeId = (exchange) => {
+  const raw = exchange?._id ?? exchange?.id ?? exchange?.exchangeId ?? exchange?.itemId ?? null;
+  if (raw === null || raw === undefined) return '';
+  return String(raw).trim();
+};
+
+const extractContainerTask = (item) => {
+  if (!item || typeof item !== 'object') return null;
+
+  if (isGroupContainerType(item)) {
+    const groupId = getItemId(item);
+    if (!groupId) return null;
+    return {
+      groupId,
+      groupTitle: getItemTitle(item) || groupId,
+      kind: 'subflow',
+    };
+  }
+
+  if (!isWhatsAppFlowType(item)) return null;
+
+  const parentItemId = getItemId(item);
+  if (!parentItemId) return null;
+
+  const exchanges =
+    (Array.isArray(item?.whatsappFlow?.exchanges) ? item.whatsappFlow.exchanges : null) ||
+    (Array.isArray(item?.whatsapp_flow?.exchanges) ? item.whatsapp_flow.exchanges : null) ||
+    (Array.isArray(item?.data?.whatsappFlow?.exchanges) ? item.data.whatsappFlow.exchanges : null) ||
+    (Array.isArray(item?.data?.whatsapp_flow?.exchanges) ? item.data.whatsapp_flow.exchanges : null) ||
+    (Array.isArray(item?.config?.whatsappFlow?.exchanges) ? item.config.whatsappFlow.exchanges : null) ||
+    (Array.isArray(item?.config?.whatsapp_flow?.exchanges) ? item.config.whatsapp_flow.exchanges : null) ||
+    [];
+
+  if (!exchanges.length) return null;
+
+  const parentTitle = getItemTitle(item) || parentItemId;
+  const tasks = exchanges
+    .map((exchange) => {
+      const exchangeId = getExchangeId(exchange);
+      if (!exchangeId) return null;
+      return {
+        taskId: `whatsapp_flow:${parentItemId}:${exchangeId}`,
+        groupId: parentItemId,
+        groupTitle: parentTitle,
+        parentItemId,
+        exchangeId,
+        kind: 'whatsapp_flow',
+      };
+    })
+    .filter(Boolean);
+
+  return tasks.length ? tasks : null;
+};
+
+const extractContainerTasksFromItems = (items) =>
+  (Array.isArray(items) ? items : [])
+    .flatMap((item) => {
+      const task = extractContainerTask(item);
+      if (!task) return [];
+      return Array.isArray(task) ? task : [task];
+    })
+    .filter(Boolean);
 
 const runQueue = async (tasks, concurrency, worker, signal) => {
   let index = 0;
@@ -214,12 +297,38 @@ export const startSync = async ({ botId, authorization, fullItems = false, onPro
       return getSyncState();
     }
 
-    const groupIds = groupRecords.map((g) => g.groupId);
-    const tasks = [{ groupId: firstLevelItems?._id ?? 'firstLevelItems', kind: 'root' }];
-    for (const groupId of groupIds) {
-      if (groupId === (firstLevelItems?._id ?? 'firstLevelItems')) continue;
-      tasks.push({ groupId, kind: 'subflow' });
-    }
+    const rootGroupId = firstLevelItems?._id ?? 'firstLevelItems';
+    const tasks = [{ taskId: `root:${rootGroupId}`, groupId: rootGroupId, groupTitle: firstLevelItems?.title ?? 'Ponto Inicial', kind: 'root' }];
+    const scheduledTaskIds = new Set([`root:${rootGroupId}`]);
+
+    const scheduleTask = (task) => {
+      const taskId = String(task?.taskId ?? task?.groupId ?? '').trim();
+      const groupId = String(task?.groupId ?? '').trim();
+      if (!taskId || !groupId || scheduledTaskIds.has(taskId)) return false;
+      scheduledTaskIds.add(taskId);
+      tasks.push({
+        taskId,
+        groupId,
+        groupTitle: String(task?.groupTitle ?? '').trim() || groupId,
+        kind: task?.kind === 'whatsapp_flow' ? 'whatsapp_flow' : 'subflow',
+        parentItemId: task?.parentItemId ? String(task.parentItemId).trim() : '',
+        exchangeId: task?.exchangeId ? String(task.exchangeId).trim() : '',
+      });
+      setState({ totalGroups: tasks.length });
+      if (onProgress) onProgress(getSyncState());
+      return true;
+    };
+
+    groupRecords.forEach((group) => {
+      const groupId = String(group?.groupId ?? '').trim();
+      if (!groupId || groupId === rootGroupId) return;
+      scheduleTask({
+        taskId: `subflow:${groupId}`,
+        groupId,
+        groupTitle: String(group?.title ?? '').trim() || groupId,
+        kind: 'subflow',
+      });
+    });
 
     setState({ totalGroups: tasks.length, completedGroups: 0 });
     if (onProgress) onProgress(getSyncState());
@@ -231,11 +340,33 @@ export const startSync = async ({ botId, authorization, fullItems = false, onPro
 
     const worker = async (task) => {
       if (signal.aborted) return;
-      const payload =
-        task.kind === 'root'
-          ? await fetchRootItems(botId, authorization, signal)
-          : await fetchSubflowItems(botId, task.groupId, authorization, signal);
+      let payload;
+      try {
+        payload =
+          task.kind === 'root'
+            ? await fetchRootItems(botId, authorization, signal)
+            : task.kind === 'whatsapp_flow'
+              ? await fetchWhatsAppFlowItems(
+                  botId,
+                  task.parentItemId || task.groupId,
+                  task.exchangeId,
+                  authorization,
+                  signal,
+                )
+              : await fetchSubflowItems(botId, task.groupId, authorization, signal);
+      } catch (error) {
+        const status = Number(error?.status);
+        if (task.kind === 'whatsapp_flow' && (status === 400 || status === 404)) {
+          setState({ completedGroups: syncState.completedGroups + 1 });
+          if (onProgress) onProgress(getSyncState());
+          return;
+        }
+        throw error;
+      }
       const items = Array.isArray(payload?.items) ? payload.items : Array.isArray(payload) ? payload : [];
+      extractContainerTasksFromItems(items).forEach((nestedTask) => {
+        scheduleTask(nestedTask);
+      });
       const detected = detectModeFromItems(items);
       if (detected === MODE_URA) hasIvrType = true;
       if (detected === MODE_BOT) hasBotType = true;
@@ -246,7 +377,13 @@ export const startSync = async ({ botId, authorization, fullItems = false, onPro
         }
       }
 
-      const fullRecords = items.map((item) => buildFullItemRecord(item, { groupId: task.groupId }));
+      const fullRecords = items.map((item) =>
+        buildFullItemRecord(item, {
+          groupId: task.groupId,
+          groupTitle: task.groupTitle ?? task.groupId,
+          flowExchangeId: task.kind === 'whatsapp_flow' ? task.exchangeId : '',
+        }),
+      );
       fullRecords.forEach((record) => {
         fullBytes += estimateBytes(record);
       });

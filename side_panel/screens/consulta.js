@@ -931,7 +931,7 @@ const renderAdvancedResults = (items) => {
 
     const header = document.createElement('div');
     header.className = 'search-group-header';
-    const title = groupsById.get(groupId) || groupId || 'Grupo';
+    const title = groupsById.get(groupId) || String(groupItems[0]?.groupTitle ?? '').trim() || groupId || 'Grupo';
     header.innerHTML = `<span>${title}</span><span>${groupItems.length}</span>`;
 
     const content = document.createElement('div');
@@ -1273,6 +1273,8 @@ const buildItemRow = (item, fallbackGroupId = null, section = 'quick') => {
       mode: state.mode,
       itemId: item.itemId,
       groupId: item.groupId ?? fallbackGroupId,
+      flowExchangeId: item.flowExchangeId,
+      searchValue: item.displayId ?? item.title ?? item.itemId,
       appBaseUrl: state.appBaseUrl,
     });
     if (url) {

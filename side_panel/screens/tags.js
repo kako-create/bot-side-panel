@@ -9,6 +9,9 @@ const TEMPLATE_ID = 'tpl-screen-tags';
 const TAG_GROUP_REGEX = /^([A-Za-z]{3})\.(\d{3,4})$/;
 const MODE_BOT = 'bot';
 const MODE_URA = 'ura';
+const SCRIPT_BLOCK_TYPE_REGEX = /script/;
+const SCRIPT_FIELD_KEY_REGEX = /(script|code)/i;
+const SCRIPT_TAG_ICON_PATH = 'assets/svgs/bot/Script.svg';
 
 const createInitialState = () => ({
   botId: null,
@@ -17,12 +20,15 @@ const createInitialState = () => ({
   lastError: null,
   meta: null,
   tags: [],
+  missingTags: [],
   unusedTags: [],
+  scriptOnlyTagKeys: new Set(),
   usageScanError: null,
   openGroups: {},
   collapsedSections: {
     status: false,
     used: false,
+    missing: false,
     unused: false,
   },
 });
@@ -77,8 +83,10 @@ const initEls = () => {
     lastSync: q('#tags-last-sync'),
     syncBtn: q('#tags-sync'),
     usedSection: q('#tags-used-section'),
+    missingSection: q('#tags-missing-section'),
     unusedSection: q('#tags-unused-section'),
     usedResults: q('#tags-used-results'),
+    missingResults: q('#tags-missing-results'),
     unusedResults: q('#tags-unused-results'),
     sectionToggles: qa('.section-toggle'),
   };
@@ -158,7 +166,100 @@ const getTagEntryLabel = (entry) => {
   return String(raw ?? '').trim();
 };
 
-const normalizeTagKey = (value) => normalizeText(String(value ?? '').trim());
+const normalizeSearchText = (value) =>
+  normalizeText(String(value ?? '').replace(/\r/g, '')).replace(/\s+/g, ' ');
+
+const normalizeTagKey = (value) => normalizeSearchText(String(value ?? '').trim());
+
+const escapeRegExp = (value) => String(value ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const isPlainObject = (value) => Object.prototype.toString.call(value) === '[object Object]';
+
+const getRecordType = (record) =>
+  String(record?.type ?? record?.payload?.type ?? '')
+    .trim()
+    .toLowerCase();
+
+const isScriptBlockRecord = (record) => SCRIPT_BLOCK_TYPE_REGEX.test(getRecordType(record));
+
+const collectScriptTextValues = (value, path = [], out = []) => {
+  if (value === null || value === undefined) return out;
+  if (Array.isArray(value)) {
+    value.forEach((entry) => collectScriptTextValues(entry, path, out));
+    return out;
+  }
+  if (isPlainObject(value)) {
+    Object.entries(value).forEach(([key, child]) => {
+      collectScriptTextValues(child, [...path, key], out);
+    });
+    return out;
+  }
+  const lastKey = String(path[path.length - 1] ?? '');
+  if (!SCRIPT_FIELD_KEY_REGEX.test(lastKey)) return out;
+
+  let raw = '';
+  if (typeof value === 'string') {
+    raw = value;
+  } else {
+    try {
+      raw = JSON.stringify(value);
+    } catch {
+      raw = String(value);
+    }
+  }
+  const normalized = normalizeSearchText(raw);
+  if (normalized) out.push(normalized);
+  return out;
+};
+
+const buildScriptTagMatchers = (records) => {
+  const matchers = new Map();
+  (Array.isArray(records) ? records : []).forEach((record) => {
+    const label = getTagLabel(record);
+    const key = normalizeTagKey(label);
+    if (!key || matchers.has(key)) return;
+    const normalizedLabel = normalizeSearchText(label);
+    if (!normalizedLabel) return;
+    // Mantem bordas frouxas para nao confundir TAG1 com TAG10.
+    matchers.set(key, new RegExp(`(^|[^a-z0-9_])${escapeRegExp(normalizedLabel)}(?=$|[^a-z0-9_])`, 'i'));
+  });
+  return matchers;
+};
+
+const getScriptTagIconUrl = () => globalThis.chrome?.runtime?.getURL?.(SCRIPT_TAG_ICON_PATH) ?? null;
+
+const copyTextToClipboard = async (value) => {
+  const text = String(value ?? '').trim();
+  if (!text) return false;
+
+  if (globalThis.navigator?.clipboard?.writeText) {
+    try {
+      await globalThis.navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // tenta fallback abaixo
+    }
+  }
+
+  if (!document?.body) return false;
+
+  const input = document.createElement('textarea');
+  input.value = text;
+  input.setAttribute('readonly', 'true');
+  input.style.position = 'fixed';
+  input.style.opacity = '0';
+  input.style.pointerEvents = 'none';
+  document.body.appendChild(input);
+  input.select();
+
+  try {
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    input.remove();
+  }
+};
 
 const toTimestamp = (value) => {
   const ms = new Date(value ?? '').getTime();
@@ -190,13 +291,18 @@ const getSyncGapLabel = (meta) => {
 const buildGroups = (records) => {
   const groups = new Map(); // chave -> { key, min, max, width, items: [] }
   const others = [];
+  const buildGroupItem = (rec, label) => ({
+    ...(rec && typeof rec === 'object' ? rec : {}),
+    label,
+    tagId: rec?.tagId ?? label,
+  });
 
   records.forEach((rec) => {
     const label = getTagLabel(rec);
     if (!label) return;
     const match = TAG_GROUP_REGEX.exec(label);
     if (!match) {
-      others.push({ label, tagId: rec?.tagId ?? label });
+      others.push(buildGroupItem(rec, label));
       return;
     }
     const key = match[1].toUpperCase();
@@ -207,7 +313,7 @@ const buildGroups = (records) => {
       groups.set(key, { key, min: value, max: value, width, items: [] });
     }
     const g = groups.get(key);
-    g.items.push({ label, tagId: rec?.tagId ?? label });
+    g.items.push(buildGroupItem(rec, label));
     g.width = Math.max(Number(g.width) || 0, width);
     if (value < g.min) g.min = value;
     if (value > g.max) g.max = value;
@@ -229,15 +335,106 @@ const buildGroups = (records) => {
   return { groups: out, others };
 };
 
+const buildMissingTagRecords = (records) => {
+  const groups = new Map();
+
+  (Array.isArray(records) ? records : []).forEach((record) => {
+    const label = getTagLabel(record);
+    if (!label) return;
+
+    const match = TAG_GROUP_REGEX.exec(label);
+    if (!match) return;
+
+    const key = match[1].toUpperCase();
+    const rawNumber = match[2];
+    const width = rawNumber.length;
+    const value = Number.parseInt(rawNumber, 10);
+    if (!Number.isFinite(value)) return;
+
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        min: value,
+        max: value,
+        width,
+        values: new Set([value]),
+      });
+      return;
+    }
+
+    const group = groups.get(key);
+    group.values.add(value);
+    group.width = Math.max(Number(group.width) || 0, width);
+    if (value < group.min) group.min = value;
+    if (value > group.max) group.max = value;
+  });
+
+  const out = [];
+  Array.from(groups.values())
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .forEach((group) => {
+      for (let value = group.min + 1; value < group.max; value += 1) {
+        if (group.values.has(value)) continue;
+        const label = `${group.key}.${String(value).padStart(group.width, '0')}`;
+        out.push({ label, tagId: label, copyOnClick: true, copyValue: label });
+      }
+    });
+
+  return out;
+};
+
 const buildTagRow = (item) => {
   const row = document.createElement('div');
   row.className = 'item-row';
 
   const title = document.createElement('div');
   title.className = 'item-title';
+
   const titleText = document.createElement('span');
   titleText.textContent = item?.label ?? 'Sem nome';
+  if (item?.copyOnClick) {
+    titleText.classList.add('item-title-copyable');
+    titleText.title = 'Clique para copiar';
+    titleText.setAttribute('role', 'button');
+    titleText.setAttribute('tabindex', '0');
+
+    const copyValue = String(item?.copyValue ?? item?.label ?? '').trim();
+    const resetTitle = () => {
+      if (!titleText.isConnected) return;
+      titleText.title = 'Clique para copiar';
+    };
+    const handleCopy = async () => {
+      if (!copyValue) return;
+      const copied = await copyTextToClipboard(copyValue);
+      titleText.title = copied ? 'Copiado' : 'Clique para copiar';
+      globalThis.setTimeout(resetTitle, 1200);
+    };
+
+    titleText.addEventListener('click', () => {
+      handleCopy();
+    });
+    titleText.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      handleCopy();
+    });
+  }
   title.appendChild(titleText);
+
+  if (item?.scriptOnly) {
+    const scriptIconUrl = getScriptTagIconUrl();
+    if (scriptIconUrl) {
+      const icon = document.createElement('img');
+      icon.className = 'item-warning-icon';
+      icon.alt = 'TAG usada apenas em script';
+      icon.src = scriptIconUrl;
+      icon.title = 'TAG usada apenas em bloco de script';
+      icon.addEventListener('error', () => {
+        icon.remove();
+      });
+      title.appendChild(icon);
+    }
+  }
 
   const actions = document.createElement('div');
   actions.className = 'actions-group';
@@ -354,7 +551,12 @@ const renderSyncedTags = () => {
     return;
   }
 
-  const items = Array.isArray(state.tags) ? state.tags : [];
+  const items = Array.isArray(state.tags)
+    ? state.tags.map((record) => ({
+        ...record,
+        scriptOnly: state.scriptOnlyTagKeys.has(normalizeTagKey(getTagLabel(record))),
+      }))
+    : [];
   if (!items.length) {
     const empty = document.createElement('div');
     empty.className = 'muted';
@@ -368,6 +570,27 @@ const renderSyncedTags = () => {
     records: items,
     scopePrefix: 'all',
     emptyMessage: 'Nenhuma TAG encontrada.',
+  });
+};
+
+const renderMissingTags = () => {
+  if (!els.missingResults) return;
+  els.missingResults.innerHTML = '';
+
+  if (!state.botId) {
+    const empty = document.createElement('div');
+    empty.className = 'muted';
+    empty.textContent = 'Selecione um bot no Boteria para ver as TAGs não criadas.';
+    els.missingResults.appendChild(empty);
+    return;
+  }
+
+  const items = Array.isArray(state.missingTags) ? state.missingTags : [];
+  renderTagGroups({
+    target: els.missingResults,
+    records: items,
+    scopePrefix: 'missing',
+    emptyMessage: 'Nenhuma TAG não criada encontrada.',
   });
 };
 
@@ -409,43 +632,75 @@ const renderUnusedTags = () => {
 
 const renderTags = () => {
   renderSyncedTags();
+  renderMissingTags();
   renderUnusedTags();
 };
 
-const collectUsedTagKeys = async (botId) => {
+const buildMissingTags = () => {
+  const sourceTags = Array.isArray(state.tags) ? state.tags : [];
+  state.missingTags = buildMissingTagRecords(sourceTags);
+};
+
+const scanTagUsage = async (botId, sourceTags = []) => {
   const records = await searchFullItems(botId, { limit: 0 });
-  const used = new Set();
+  const usedByFieldKeys = new Set();
+  const usedByScriptKeys = new Set();
+  const scriptTexts = [];
+
   records.forEach((record) => {
     const tags = record?.payload?.tags;
-    if (!Array.isArray(tags)) return;
-    tags.forEach((tag) => {
-      const label = getTagEntryLabel(tag);
-      const key = normalizeTagKey(label);
-      if (key) used.add(key);
+    if (Array.isArray(tags)) {
+      tags.forEach((tag) => {
+        const label = getTagEntryLabel(tag);
+        const key = normalizeTagKey(label);
+        if (key) usedByFieldKeys.add(key);
+      });
+    }
+
+    if (!isScriptBlockRecord(record)) return;
+    collectScriptTextValues(record?.payload ?? null).forEach((value) => {
+      if (value) scriptTexts.push(value);
     });
   });
-  return used;
+
+  if (scriptTexts.length) {
+    const scriptSource = scriptTexts.join('\n');
+    buildScriptTagMatchers(sourceTags).forEach((matcher, key) => {
+      if (matcher.test(scriptSource)) usedByScriptKeys.add(key);
+    });
+  }
+
+  return { usedByFieldKeys, usedByScriptKeys };
 };
 
 const buildUnusedTags = async () => {
   state.unusedTags = [];
+  state.scriptOnlyTagKeys = new Set();
   state.usageScanError = null;
 
   if (!state.botId || !state.meta?.lastItemsSyncAt) return;
 
   try {
-    const usedTagKeys = await collectUsedTagKeys(state.botId);
-    if (disposed) return;
     const sourceTags = Array.isArray(state.tags) ? state.tags : [];
+    if (!sourceTags.length) return;
+
+    const { usedByFieldKeys, usedByScriptKeys } = await scanTagUsage(state.botId, sourceTags);
+    if (disposed) return;
+    state.scriptOnlyTagKeys = new Set(
+      sourceTags
+        .map((record) => normalizeTagKey(getTagLabel(record)))
+        .filter((key) => key && usedByScriptKeys.has(key) && !usedByFieldKeys.has(key)),
+    );
     state.unusedTags = sourceTags.filter((rec) => {
       const label = getTagLabel(rec);
       const key = normalizeTagKey(label);
       if (!key) return false;
-      return !usedTagKeys.has(key);
+      return !usedByFieldKeys.has(key) && !usedByScriptKeys.has(key);
     });
   } catch (error) {
     if (disposed) return;
     state.unusedTags = [];
+    state.scriptOnlyTagKeys = new Set();
     state.usageScanError = String(error?.message ?? error);
   }
 };
@@ -463,6 +718,8 @@ const initSectionToggles = () => {
         ? 'status'
         : targetId === 'tags-used-content'
           ? 'used'
+          : targetId === 'tags-missing-content'
+            ? 'missing'
           : targetId === 'tags-unused-content'
             ? 'unused'
             : null;
@@ -496,7 +753,9 @@ const loadMetaAndTags = async () => {
   if (!state.botId) {
     state.meta = null;
     state.tags = [];
+    state.missingTags = [];
     state.unusedTags = [];
+    state.scriptOnlyTagKeys = new Set();
     state.usageScanError = null;
     return;
   }
@@ -512,6 +771,7 @@ const loadMetaAndTags = async () => {
     state.tags = [];
   }
   if (disposed) return;
+  buildMissingTags();
   await buildUnusedTags();
 };
 
@@ -552,6 +812,7 @@ const loadContext = async () => {
         state.tags = [];
       }
       if (disposed) return;
+      buildMissingTags();
     }
     if (tagsSyncChanged || itemsSyncChanged) {
       await buildUnusedTags();

@@ -283,6 +283,7 @@ const buildComparableItems = (records) =>
       titleKey,
       itemId: String(record?.itemId ?? ''),
       groupId: String(record?.groupId ?? ''),
+      flowExchangeId: String(record?.flowExchangeId ?? ''),
       payload,
       signature: JSON.stringify({ type: typeKey, title: titleKey, payload }),
       matchKey: `${typeKey}::${titleKey || '(sem-titulo)'}`,
@@ -476,6 +477,8 @@ const compareItems = (leftItems, rightItems) => {
         rightItemId: right.itemId,
         leftGroupId: left.groupId,
         rightGroupId: right.groupId,
+        leftFlowExchangeId: left.flowExchangeId,
+        rightFlowExchangeId: right.flowExchangeId,
         mergeDiff: mergeDiff.slice(0, MERGE_DIFF_LIMIT),
       });
     }
@@ -754,7 +757,7 @@ const renderPropertyFilter = () => {
   }
 };
 
-const createOpenBlockButton = ({ label, record, mode, itemId, groupId }) => {
+const createOpenBlockButton = ({ label, record, mode, itemId, groupId, flowExchangeId, searchValue }) => {
   const button = document.createElement('button');
   button.className = 'item-link';
   button.type = 'button';
@@ -763,6 +766,8 @@ const createOpenBlockButton = ({ label, record, mode, itemId, groupId }) => {
   const resolvedMode = normalizeMode(mode) || normalizeMode(record?.mode);
   const resolvedItemId = itemId ?? '';
   const resolvedGroupId = groupId ?? '';
+  const resolvedFlowExchangeId = flowExchangeId ?? '';
+  const resolvedSearchValue = searchValue ?? resolvedItemId;
   if (!botId || !resolvedMode || !resolvedItemId) {
     button.disabled = true;
     button.title = 'Link indisponível para esse bloco';
@@ -786,6 +791,8 @@ const createOpenBlockButton = ({ label, record, mode, itemId, groupId }) => {
       mode: resolvedMode,
       itemId: resolvedItemId,
       groupId: resolvedGroupId,
+      flowExchangeId: resolvedFlowExchangeId,
+      searchValue: resolvedSearchValue,
       appBaseUrl,
     });
     if (!url) return;
@@ -861,6 +868,8 @@ const createChangedLine = (row, index, cmp) => {
       mode: cmp.mode,
       itemId: row.leftItemId,
       groupId: row.leftGroupId,
+      flowExchangeId: row.leftFlowExchangeId,
+      searchValue: row.title ?? row.leftItemId,
     }),
   );
   top.appendChild(
@@ -870,6 +879,8 @@ const createChangedLine = (row, index, cmp) => {
       mode: cmp.mode,
       itemId: row.rightItemId,
       groupId: row.rightGroupId,
+      flowExchangeId: row.rightFlowExchangeId,
+      searchValue: row.title ?? row.rightItemId,
     }),
   );
   details.appendChild(top);

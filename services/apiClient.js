@@ -150,6 +150,18 @@ export const fetchSubflowItems = async (botId, groupId, authorization, signal) =
   return normalizeList(payload, ['items']);
 };
 
+export const fetchWhatsAppFlowItems = async (botId, itemId, exchangeId, authorization, signal) => {
+  if (!authorization || !authorization.toLowerCase().startsWith('bearer ')) {
+    throw new Error('Token de autorização inválido ou ausente.');
+  }
+  const response = await fetchWithRetry(apiEndpoints.whatsappFlowItems(botId, itemId, exchangeId), {
+    headers: { Authorization: authorization },
+    signal,
+  });
+  const payload = await parseJson(response);
+  return normalizeList(payload, ['items']);
+};
+
 export const fetchBotVariables = async (botId, authorization, mode = 'bot', signal) => {
   if (!authorization || !authorization.toLowerCase().startsWith('bearer ')) {
     throw new Error('Token de autorização inválido ou ausente.');

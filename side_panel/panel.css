@@ -1604,6 +1604,10 @@ input[type='text']::placeholder {
   white-space: nowrap;
 }
 
+.item-title-copyable {
+  cursor: copy;
+}
+
 .type-chip {
   display: flex;
   align-items: center;

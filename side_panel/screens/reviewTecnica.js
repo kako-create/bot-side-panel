@@ -703,7 +703,7 @@ const resolveStaticGroupLabel = (record, groupsById = new Map()) => {
   }
   if (record.reviewKind === REVIEW_KIND_TAG) return 'Tags';
   const groupId = String(record?.groupId ?? '').trim();
-  return String(groupsById.get(groupId) ?? groupId).trim();
+  return String(groupsById.get(groupId) ?? record?.groupTitle ?? groupId).trim();
 };
 
 const resolveRowGroupLabel = (row, groupsById = new Map(), { scope = 'single' } = {}) => {
@@ -1060,7 +1060,7 @@ const formatBlockTitle = ({ type, title, itemId, displayId }) => {
   return `${typeLabel} • ${titleLabel} (${idLabel})`;
 };
 
-const createOpenCurrentBlockButton = ({ itemId, groupId }) => {
+const createOpenCurrentBlockButton = ({ itemId, groupId, flowExchangeId, searchValue }) => {
   const button = document.createElement('button');
   button.className = 'item-link';
   button.type = 'button';
@@ -1070,6 +1070,8 @@ const createOpenCurrentBlockButton = ({ itemId, groupId }) => {
   const mode = normalizeMode(state.comparison?.mode) || normalizeMode(state.mode);
   const resolvedItemId = String(itemId ?? '').trim();
   const resolvedGroupId = String(groupId ?? '').trim();
+  const resolvedFlowExchangeId = String(flowExchangeId ?? '').trim();
+  const resolvedSearchValue = String(searchValue ?? '').trim();
   if (!botId || !mode || !resolvedItemId) {
     button.disabled = true;
     button.title = 'Link indisponível para esse bloco';
@@ -1095,6 +1097,8 @@ const createOpenCurrentBlockButton = ({ itemId, groupId }) => {
       mode,
       itemId: resolvedItemId,
       groupId: resolvedGroupId,
+      flowExchangeId: resolvedFlowExchangeId,
+      searchValue: resolvedSearchValue || resolvedItemId,
       appBaseUrl,
     });
     if (!url) return;
@@ -1154,6 +1158,8 @@ const createChangedLine = (row, index, cmp) => {
       createOpenCurrentBlockButton({
         itemId: row.rightItemId,
         groupId: row.rightGroupId,
+        flowExchangeId: row.rightItem?.flowExchangeId ?? row.rightFlowExchangeId,
+        searchValue: row.title ?? row.rightItem?.title ?? row.rightDisplayId ?? row.rightItemId,
       }),
     );
     details.appendChild(actions);
