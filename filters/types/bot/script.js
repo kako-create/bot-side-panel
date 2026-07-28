@@ -111,34 +111,41 @@ export const scriptFilterConfig = {
     );
   },
   match: (item, state, helpers) => {
-    const { matchBoolean, matchBooleanAny, matchText } = createMatchHelpers(item, helpers);
+    const { matchBoolean, matchBooleanAny, matchText, matchTextAny } = createMatchHelpers(
+      item,
+      helpers,
+    );
 
     return (
       matchBoolean('quickAccess', state.quickAccess) &&
       matchBoolean('checkpoint', state.checkpoint) &&
       matchText('tags', state.tags) &&
       matchText('timeTypping', state.timeTypping) &&
-      matchText('scriptCode', state.scriptCode) &&
-      matchText('script', state.scriptCode) &&
-      matchText('code', state.scriptCode) &&
-      matchText('data.scriptCode', state.scriptCode) &&
-      matchText('config.scriptCode', state.scriptCode) &&
+      matchTextAny(
+        ['scriptCode', 'script', 'code', 'data.scriptCode', 'config.scriptCode'],
+        state.scriptCode,
+      ) &&
       matchBooleanAny(['redirectToCheckpoint', 'checkpoint'], state.redirectToCheckpoint) &&
-      matchText('errorMessageFinal', state.errorMessageFinal) &&
-      matchText('escape.errorMessageFinal', state.errorMessageFinal) &&
-      matchText('escape.message', state.errorMessageFinal) &&
-      matchText('escape.text', state.errorMessageFinal) &&
-      matchText('escapeDestination', state.escapeDestination) &&
-      matchText('escape.destination', state.escapeDestination) &&
-      matchText('escape.destinationId', state.escapeDestination) &&
-      matchText('escape.item', state.escapeDestination) &&
-      matchText('escape.itemId', state.escapeDestination) &&
-      matchText('redirectTo', state.escapeDestination) &&
-      matchText('redirectToItem', state.escapeDestination) &&
-      matchText('redirectTo.id', state.escapeDestination) &&
-      matchText('redirectTo.item', state.escapeDestination) &&
-      matchText('redirectToItemId', state.escapeDestination) &&
-      matchText('eventDescription.active', state.eventDescriptionActive) &&
+      matchTextAny(
+        ['errorMessageFinal', 'escape.errorMessageFinal', 'escape.message', 'escape.text'],
+        state.errorMessageFinal,
+      ) &&
+      matchTextAny(
+        [
+          'escapeDestination',
+          'escape.destination',
+          'escape.destinationId',
+          'escape.item',
+          'escape.itemId',
+          'redirectTo',
+          'redirectToItem',
+          'redirectTo.id',
+          'redirectTo.item',
+          'redirectToItemId',
+        ],
+        state.escapeDestination,
+      ) &&
+      matchBoolean('eventDescription.active', state.eventDescriptionActive) &&
       matchText('eventDescription.description', state.eventDescriptionText)
     );
   },

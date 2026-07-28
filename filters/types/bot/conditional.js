@@ -121,27 +121,36 @@ export const conditionalFilterConfig = {
     );
   },
   match: (item, state, helpers) => {
-    const { matchBoolean, matchBooleanAny, matchText } = createMatchHelpers(item, helpers);
+    const { matchBoolean, matchBooleanAny, matchText, matchTextAny } = createMatchHelpers(
+      item,
+      helpers,
+    );
 
     return (
       matchBoolean('quickAccess', state.quickAccess) &&
       matchBoolean('checkpoint', state.checkpoint) &&
       matchText('tags', state.tags) &&
-      matchText('conditions.type', state.conditionType) &&
-      matchText('conditions.context', state.conditionType) &&
-      matchText('conditionType', state.conditionType) &&
-      matchText('conditions.operator', state.operator) &&
-      matchText('conditions.rule', state.operator) &&
-      matchText('operator', state.operator) &&
-      matchText('conditions.value', state.value) &&
-      matchText('value', state.value) &&
-      matchText('conditions.destination', state.destination) &&
-      matchText('destination', state.destination) &&
-      matchText('conditions.destinationId', state.destination) &&
-      matchText('destinationId', state.destination) &&
+      matchTextAny(
+        ['conditions.type', 'conditions.context', 'conditionType'],
+        state.conditionType,
+      ) &&
+      matchTextAny(
+        ['conditions.operator', 'conditions.rule', 'operator'],
+        state.operator,
+      ) &&
+      matchTextAny(['conditions.value', 'value'], state.value) &&
+      matchTextAny(
+        [
+          'conditions.destination',
+          'destination',
+          'conditions.destinationId',
+          'destinationId',
+        ],
+        state.destination,
+      ) &&
       matchBooleanAny(['redirectToCheckpoint', 'checkpoint'], state.redirectToCheckpoint) &&
       matchText('errorMessageFinal', state.errorMessageFinal) &&
-      matchText('eventDescription.active', state.eventDescriptionActive) &&
+      matchBoolean('eventDescription.active', state.eventDescriptionActive) &&
       matchText('eventDescription.description', state.eventDescriptionText)
     );
   },

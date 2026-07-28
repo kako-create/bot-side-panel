@@ -6,6 +6,11 @@ import { menuFilterConfig } from './types/bot/menu.js';
 import { redirectFilterConfig } from './types/bot/redirect.js';
 import { scriptFilterConfig } from './types/bot/script.js';
 import { textFilterConfig } from './types/bot/text.js';
+import {
+  topdeskCreateTicketFilterConfig,
+  topdeskInsertAttachmentFilterConfig,
+  topdeskRequesterValidationFilterConfig,
+} from './types/bot/topdesk.js';
 
 export const specificFilterConfigsByType = {
   Menu: menuFilterConfig,
@@ -28,4 +33,10 @@ export const specificFilterConfigsByType = {
   Conditional: conditionalFilterConfig,
   Condicional: conditionalFilterConfig,
   Script: scriptFilterConfig,
+  TopdeskCreateTicket: topdeskCreateTicketFilterConfig,
+  topdeskcreateticket: topdeskCreateTicketFilterConfig,
+  TopdeskInsertAttachment: topdeskInsertAttachmentFilterConfig,
+  topdeskinsertattachment: topdeskInsertAttachmentFilterConfig,
+  TopdeskRequesterValidation: topdeskRequesterValidationFilterConfig,
+  topdeskrequestervalidation: topdeskRequesterValidationFilterConfig,
 };

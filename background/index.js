@@ -17,6 +17,7 @@ import {
   getTechReviewChangeMonitor,
 } from '../data/db.js';
 import { startSync, getSyncState, cancelSync } from '../services/syncManager.js';
+import { syncFlowConnectors } from '../services/connectorsSync.js';
 import { syncBotVariables } from '../services/variablesSync.js';
 import { syncBotTags } from '../services/tagsSync.js';
 import { syncBotIntents } from '../services/intentsSync.js';
@@ -1201,6 +1202,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           .catch((error) =>
             respond(respondErr(ErrorCode.INTERNAL, 'Falha na sincronização.', String(error?.message ?? error))),
           );
+      });
+      return true;
+    }
+    case MessageType.SYNC_FLOW_CONNECTORS: {
+      initPromise.then(async () => {
+        const active = await resolveContextForActiveTab({ refreshFromContent: true });
+        const requestedBotId = message?.botId ?? active.context?.botId ?? contextState.botId;
+        if (!requestedBotId || !authSessionState.authorization) {
+          respond(respondErr(ErrorCode.NOT_READY, 'botId ou token ausente.'));
+          return;
+        }
+        try {
+          const result = await syncFlowConnectors({
+            botId: requestedBotId,
+            authorization: authSessionState.authorization,
+          });
+          respond(respondOk(result));
+        } catch (error) {
+          const status = Number(error?.status ?? 0);
+          const code =
+            status === 401 || status === 419 ? ErrorCode.UNAUTHORIZED : ErrorCode.INTERNAL;
+          respond(
+            respondErr(
+              code,
+              'Falha ao sincronizar conectores.',
+              String(error?.message ?? error),
+            ),
+          );
+        }
       });
       return true;
     }

@@ -289,6 +289,7 @@ export const textFilterConfig = {
       matchItemToken,
       matchOptionAny,
       matchText,
+      matchTextAny,
     } = createMatchHelpers(item, helpers);
 
     return (
@@ -297,9 +298,7 @@ export const textFilterConfig = {
       matchBoolean('checkpoint', state.checkpoint) &&
       matchText('tags', state.tags) &&
       matchText('timeTypping', state.timeTypping) &&
-      matchText('description', state.description) &&
-      matchText('text', state.description) &&
-      matchText('label', state.description) &&
+      matchTextAny(['description', 'text', 'label'], state.description) &&
       matchBoolean('captureAnswer', state.captureAnswer) &&
       matchText('variable', state.variable) &&
       matchText('validation', state.validation) &&
@@ -343,12 +342,17 @@ export const textFilterConfig = {
         ],
         state.buttonsType,
       ) || matchItemToken(state.buttonsType)) &&
-      matchText('buttons.variable', state.buttonsVariable) &&
-      matchText('buttons.variableName', state.buttonsVariable) &&
-      matchText('buttonsVariable', state.buttonsVariable) &&
-      matchText('data.buttons.variable', state.buttonsVariable) &&
-      matchText('data.buttons.variableName', state.buttonsVariable) &&
-      matchText('config.buttons.variable', state.buttonsVariable) &&
+      matchTextAny(
+        [
+          'buttons.variable',
+          'buttons.variableName',
+          'buttonsVariable',
+          'data.buttons.variable',
+          'data.buttons.variableName',
+          'config.buttons.variable',
+        ],
+        state.buttonsVariable,
+      ) &&
       matchBoolean('idleTime.on', state.idleTimeOn) &&
       matchText('idleTime.timer', state.idleTimeTimer) &&
       matchText('idleTime.item', state.idleTimeItem) &&
@@ -357,8 +361,7 @@ export const textFilterConfig = {
       matchBoolean('ignoreTriggers.audio', state.triggerAudio) &&
       matchBoolean('ignoreTriggers.media', state.triggerMedia) &&
       matchText('conditionEscape', state.conditionEscape) &&
-      matchText('alternativeText', state.alternativeText) &&
-      matchText('alternativeTexts', state.alternativeText) &&
+      matchTextAny(['alternativeText', 'alternativeTexts'], state.alternativeText) &&
       matchBoolean('eventDescription.active', state.eventDescriptionActive) &&
       matchText('eventDescription.description', state.eventDescriptionText) &&
       matchBooleanAny(['redirectToCheckpoint', 'checkpoint'], state.redirectToCheckpoint)

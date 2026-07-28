@@ -95,7 +95,17 @@ const normalizeList = (payload, fallbackKeys = []) => {
   candidates.push(obj.data, obj.result);
   if (obj.data && typeof obj.data === 'object') {
     const data = obj.data;
-    candidates.push(data.items, data.blocks, data.variables, data.tags, data.docs, data.conditions, data.intents, data.functions);
+    candidates.push(
+      data.items,
+      data.connectors,
+      data.blocks,
+      data.variables,
+      data.tags,
+      data.docs,
+      data.conditions,
+      data.intents,
+      data.functions,
+    );
   }
   for (const candidate of candidates) {
     if (Array.isArray(candidate)) return candidate;
@@ -138,6 +148,18 @@ export const fetchRootItems = async (botId, authorization, signal) => {
   return { items, botTitle: extractBotTitle(payload) };
 };
 
+export const fetchRootConnectors = async (botId, authorization, signal) => {
+  if (!authorization || !authorization.toLowerCase().startsWith('bearer ')) {
+    throw new Error('Token de autorização inválido ou ausente.');
+  }
+  const response = await fetchWithRetry(apiEndpoints.rootConnectors(botId), {
+    headers: { Authorization: authorization },
+    signal,
+  });
+  const payload = await parseJson(response);
+  return normalizeList(payload, ['connectors']);
+};
+
 export const fetchSubflowItems = async (botId, groupId, authorization, signal) => {
   if (!authorization || !authorization.toLowerCase().startsWith('bearer ')) {
     throw new Error('Token de autorização inválido ou ausente.');
@@ -148,6 +170,18 @@ export const fetchSubflowItems = async (botId, groupId, authorization, signal) =
   });
   const payload = await parseJson(response);
   return normalizeList(payload, ['items']);
+};
+
+export const fetchSubflowConnectors = async (botId, groupId, authorization, signal) => {
+  if (!authorization || !authorization.toLowerCase().startsWith('bearer ')) {
+    throw new Error('Token de autorização inválido ou ausente.');
+  }
+  const response = await fetchWithRetry(apiEndpoints.subflowConnectors(botId, groupId), {
+    headers: { Authorization: authorization },
+    signal,
+  });
+  const payload = await parseJson(response);
+  return normalizeList(payload, ['connectors']);
 };
 
 export const fetchWhatsAppFlowItems = async (botId, itemId, exchangeId, authorization, signal) => {

@@ -12,10 +12,15 @@ import { consumeConsultaIntent } from '../consultaIntent.js';
 import { getModeConfig, DEFAULT_MODE_ID } from '../../config/modeRegistry.js';
 import { getItemFieldValue } from '../../filters/itemHelpers.js';
 import { shouldShowMenuWarning } from '../../shared/menuWarning.js';
+import {
+  exportAdvancedSearchWorkbook,
+  getAdvancedExportSummary,
+} from '../services/advancedSearchExport.js';
 
 const TEMPLATE_ID = 'tpl-screen-consulta';
 const CONTEXT_LOSS_GRACE_MS = 8_000;
 const MENU_WARNING_ICON_PATH = 'assets/svgs/bot/MenuWarning.svg';
+const ADVANCED_RESULT_LIMIT = 1_000;
 
 const getMenuWarningIconUrl = () => {
   try {
@@ -51,6 +56,10 @@ const createInitialState = () => ({
     query: '',
     deep: false,
     results: [],
+    resultSnapshot: null,
+    searchSeq: 0,
+    searching: false,
+    exporting: false,
     specific: {
       enabled: false,
       fields: {},
@@ -120,6 +129,7 @@ const initEls = () => {
     advancedDeep: q('#advanced-deep'),
     advancedSearch: q('#advanced-search'),
     advancedClear: q('#advanced-clear'),
+    advancedExport: q('#advanced-export'),
     advancedResults: q('#advanced-results'),
     advancedTotal: q('#advanced-total'),
     filterSpecificContainer: q('#filter-specific-container'),
@@ -158,6 +168,128 @@ const debounce = (fn, wait = 200) => {
 
 const setText = (el, value) => {
   if (el) el.textContent = value ?? '';
+};
+
+const cloneSerializable = (value) => {
+  if (value === null || value === undefined) return value ?? null;
+  try {
+    if (typeof structuredClone === 'function') return structuredClone(value);
+  } catch {
+    // usar fallback JSON
+  }
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return value;
+  }
+};
+
+const readAdvancedCriteria = () => ({
+  type: String(els.advancedType?.value ?? state.advanced.type ?? ''),
+  query: String(els.advancedText?.value ?? state.advanced.query ?? '').trim(),
+  deep: Boolean(els.advancedDeep?.checked),
+  specific: {
+    enabled: Boolean(state.advanced.specific?.enabled),
+    type: String(state.advanced.specific?.type ?? ''),
+    fields: cloneSerializable(state.advanced.specific?.fields ?? {}),
+  },
+});
+
+const getExportableAdvancedSnapshot = () => {
+  const snapshot = state.advanced.resultSnapshot;
+  if (!snapshot || snapshot.stale) return null;
+  if (String(snapshot.botId ?? '') !== String(state.botId ?? '')) return null;
+  if (normalizeModeValue(snapshot.mode) !== 'bot' || normalizeModeValue(state.mode) !== 'bot') {
+    return null;
+  }
+  if (state.syncStatus?.running) return null;
+  if (String(state.meta?.botId ?? '') !== String(snapshot.botId ?? '')) return null;
+  if (String(state.meta?.lastItemsSyncAt ?? '') !== String(snapshot.lastItemsSyncAt ?? '')) {
+    return null;
+  }
+  return snapshot;
+};
+
+const formatExportSummary = ({
+  apiCount = 0,
+  topdeskCount = 0,
+  configuredBlockCount = 0,
+} = {}) => {
+  const parts = [];
+  if (apiCount > 0) parts.push(`${apiCount} API${apiCount === 1 ? '' : 's'} v2`);
+  if (topdeskCount > 0) {
+    parts.push(`${topdeskCount} bloco${topdeskCount === 1 ? '' : 's'} Topdesk`);
+  }
+  if (configuredBlockCount > 0) {
+    parts.push(
+      `${configuredBlockCount} bloco${configuredBlockCount === 1 ? '' : 's'} com filtro específico`,
+    );
+  }
+  if (parts.length < 2) return parts[0] ?? '';
+  return `${parts.slice(0, -1).join(', ')} e ${parts[parts.length - 1]}`;
+};
+
+const updateAdvancedExportButton = () => {
+  if (!els.advancedExport) return;
+  const snapshot = getExportableAdvancedSnapshot();
+  const exportSummary = getAdvancedExportSummary(snapshot?.results ?? []);
+  const isBotSnapshot = normalizeModeValue(snapshot?.mode ?? state.mode) === 'bot';
+  const isUraMode = normalizeModeValue(state.mode) === 'ura';
+  const ready =
+    Boolean(snapshot) &&
+    isBotSnapshot &&
+    exportSummary.totalCount > 0 &&
+    !state.advanced.searching &&
+    !state.advanced.exporting;
+
+  els.advancedExport.disabled = !ready;
+  els.advancedExport.textContent = state.advanced.exporting
+    ? 'Exportando...'
+    : exportSummary.totalCount > 0
+      ? `Exportar (${exportSummary.totalCount})`
+      : 'Exportar';
+
+  if (isUraMode) {
+    els.advancedExport.title = 'A exportação está disponível apenas no modo BOT.';
+  } else if (state.syncStatus?.running) {
+    els.advancedExport.title = 'Aguarde a sincronização terminar e execute uma nova busca se necessário.';
+  } else if (!snapshot) {
+    els.advancedExport.title = 'Execute uma busca para exportar os blocos suportados encontrados.';
+  } else if (!exportSummary.totalCount) {
+    els.advancedExport.title = 'A busca atual não possui blocos suportados para exportação.';
+  } else {
+    els.advancedExport.title = `Exportar ${formatExportSummary(exportSummary)} da última busca.`;
+  }
+};
+
+const invalidateAdvancedResult = ({ updateMessage = true } = {}) => {
+  const wasSearching = state.advanced.searching;
+  const hadVisibleResult = Array.isArray(state.advanced.results) && state.advanced.results.length > 0;
+  state.advanced.searchSeq += 1;
+  state.advanced.searching = false;
+  if (state.advanced.resultSnapshot) {
+    state.advanced.resultSnapshot = { ...state.advanced.resultSnapshot, stale: true };
+  }
+  if (updateMessage && (state.advanced.resultSnapshot || wasSearching || hadVisibleResult)) {
+    setText(els.advancedTotal, 'Filtros alterados — clique em Buscar novamente');
+  }
+  updateSearchButtons({
+    summaryReady: Boolean(state.meta?.lastSummarySyncAt),
+    fullReady: Boolean(state.meta?.lastItemsSyncAt),
+  });
+};
+
+const resetAdvancedResults = ({ message = '0 blocos encontrados', render = true } = {}) => {
+  state.advanced.searchSeq += 1;
+  state.advanced.searching = false;
+  state.advanced.results = [];
+  state.advanced.resultSnapshot = null;
+  setText(els.advancedTotal, message);
+  if (render) renderAdvancedResults([]);
+  updateSearchButtons({
+    summaryReady: Boolean(state.meta?.lastSummarySyncAt),
+    fullReady: Boolean(state.meta?.lastItemsSyncAt),
+  });
 };
 
 const updateAdvancedPlaceholder = () => {
@@ -250,9 +382,17 @@ const applySyncStatus = (status) => {
   state.syncStatus = status;
   setText(els.statusSync, formatSyncStatus(status));
   updateSyncButtons();
+  if (status?.running) {
+    updateSearchButtons({
+      summaryReady: Boolean(state.meta?.lastSummarySyncAt),
+      fullReady: Boolean(state.meta?.lastItemsSyncAt),
+    });
+  }
   let botChanged = false;
+  const previousMode = state.mode;
   if (status?.appBaseUrl) state.appBaseUrl = status.appBaseUrl;
-  if (status?.botId && status.botId !== state.botId) {
+  if (status?.botId && String(status.botId) !== String(state.botId ?? '')) {
+    resetAdvancedResults();
     state.botId = status.botId;
     if (status.mode) state.mode = status.mode;
     setCurrentMode(state.mode);
@@ -261,6 +401,9 @@ const applySyncStatus = (status) => {
   if (status?.mode && status.mode !== state.mode) {
     state.mode = status.mode;
     setCurrentMode(state.mode);
+  }
+  if (!botChanged && previousMode && state.mode && previousMode !== state.mode) {
+    resetAdvancedResults();
   }
   updateBotLabel();
   loadMeta();
@@ -277,6 +420,9 @@ const loadContext = async () => {
     const nextBotId = response.data.context.botId ?? null;
     const nextMode = response.data.context.mode ?? null;
     const nextAppBaseUrl = response.data.context.appBaseUrl ?? null;
+    const botChanged = String(nextBotId ?? '') !== String(state.botId ?? '');
+    const modeChanged =
+      Boolean(nextMode && state.mode) && normalizeModeValue(nextMode) !== normalizeModeValue(state.mode);
     const isMissingBotId = !nextBotId;
 
     if (isMissingBotId && state.botId) {
@@ -293,6 +439,7 @@ const loadContext = async () => {
       state.contextMissingSince = null;
     }
 
+    if (botChanged || modeChanged) resetAdvancedResults();
     state.botId = nextBotId;
     state.mode = nextMode;
     state.appBaseUrl = nextAppBaseUrl;
@@ -548,6 +695,7 @@ const updateTypeOptions = () => {
         label: 'Todos os tipos',
         count: totalCount,
         onSelect: (value) => {
+          invalidateAdvancedResult();
           state.advanced.type = value;
           els.advancedType.value = value;
           syncTypeSelectButton({ button: els.advancedTypeButton, value, labels: state.typeLabelByValue });
@@ -569,6 +717,7 @@ const updateTypeOptions = () => {
           iconType,
           count,
           onSelect: (selected) => {
+            invalidateAdvancedResult();
             state.advanced.type = selected;
             els.advancedType.value = selected;
             syncTypeSelectButton({ button: els.advancedTypeButton, value: selected, labels: state.typeLabelByValue });
@@ -588,6 +737,7 @@ const updateTypeOptions = () => {
         label: state.typeLabelByValue[state.advanced.type] ?? state.advanced.type,
         iconType: state.typeIconByValue[state.advanced.type] ?? state.advanced.type,
         onSelect: (selected) => {
+          invalidateAdvancedResult();
           state.advanced.type = selected;
           els.advancedType.value = selected;
           syncTypeSelectButton({ button: els.advancedTypeButton, value: selected, labels: state.typeLabelByValue });
@@ -688,6 +838,9 @@ const loadGroupItems = async (groupId, wrapper) => {
 
 const startSync = async (fullItems) => {
   if (disposed) return;
+  if (fullItems) {
+    resetAdvancedResults({ message: 'Sincronizando detalhes completos...' });
+  }
   const response = await callBG(MessageType.START_SYNC, { botId: state.botId, fullItems });
   if (disposed) return;
   if (!response.ok) {
@@ -719,6 +872,7 @@ const handleAdvancedInput = debounce(() => {
 
 const handleAdvancedDeepChange = () => {
   if (!els.advancedDeep) return;
+  invalidateAdvancedResult();
   state.advanced.deep = Boolean(els.advancedDeep.checked);
   updateAdvancedPlaceholder();
   persistPanelState();
@@ -850,6 +1004,7 @@ const ensureSpecificToggleBinding = () => {
   if (els.filterSpecificToggle.dataset.bound === 'true') return;
   els.filterSpecificToggle.dataset.bound = 'true';
   els.filterSpecificToggle.addEventListener('change', () => {
+    invalidateAdvancedResult();
     const enabled = Boolean(els.filterSpecificToggle.checked);
     state.advanced.specific.enabled = enabled;
     els.filterSpecificContent.style.display = enabled ? 'grid' : 'none';
@@ -892,6 +1047,7 @@ const updateSpecificFilterUI = () => {
     container: els.filterSpecificContent,
     state: state.advanced.specific.fields,
     onChange: (key, value, autoEnable = true) => {
+      invalidateAdvancedResult();
       state.advanced.specific.fields = { ...state.advanced.specific.fields, [key]: value };
       if (autoEnable) {
         state.advanced.specific.enabled = true;
@@ -964,14 +1120,48 @@ const renderAdvancedResults = (items) => {
 };
 
 const runAdvancedSearch = async () => {
-  if (!state.botId) {
-    setText(els.advancedTotal, '0 blocos encontrados');
-    renderAdvancedResults([]);
+  if (
+    disposed ||
+    state.syncStatus?.running ||
+    state.advanced.searching ||
+    state.advanced.exporting
+  ) {
     return;
   }
+  const searchState = state;
+  if (!state.botId) {
+    resetAdvancedResults();
+    return;
+  }
+
+  const searchBotId = String(state.botId);
+  const criteria = readAdvancedCriteria();
+  const searchSeq = state.advanced.searchSeq + 1;
+  state.advanced.searchSeq = searchSeq;
+  state.advanced.searching = true;
+  state.advanced.resultSnapshot = null;
+  setText(els.advancedTotal, 'Buscando...');
+  updateSearchButtons({
+    summaryReady: Boolean(state.meta?.lastSummarySyncAt),
+    fullReady: Boolean(state.meta?.lastItemsSyncAt),
+  });
+  updateAdvancedExportButton();
+
   try {
-    const meta = (state.meta && state.meta.botId === state.botId) ? state.meta : await loadMeta();
+    const meta =
+      state.meta && String(state.meta.botId ?? '') === searchBotId ? state.meta : await loadMeta();
+    if (
+      disposed ||
+      state !== searchState ||
+      searchSeq !== state.advanced.searchSeq ||
+      searchBotId !== String(state.botId ?? '')
+    ) {
+      return;
+    }
     if (!meta?.lastItemsSyncAt) {
+      state.advanced.results = [];
+      state.advanced.resultSnapshot = null;
+      setText(els.advancedTotal, '0 blocos encontrados');
       if (els.advancedResults) {
         els.advancedResults.innerHTML = '';
         const warn = document.createElement('div');
@@ -982,35 +1172,67 @@ const runAdvancedSearch = async () => {
       return;
     }
 
-    state.advanced.query = els.advancedText?.value.trim() ?? '';
-    state.advanced.type = els.advancedType?.value ?? '';
-    state.advanced.deep = Boolean(els.advancedDeep?.checked);
+    state.advanced.query = criteria.query;
+    state.advanced.type = criteria.type;
+    state.advanced.deep = criteria.deep;
     persistPanelState();
 
-    const specificConfig = resolveSpecificConfig(state.advanced.type);
-    const specificEnabled = Boolean(state.advanced.specific.enabled && specificConfig?.match);
+    const specificConfig = resolveSpecificConfig(criteria.type);
+    const specificEnabled = Boolean(criteria.specific.enabled && specificConfig?.match);
     const filterFn = specificEnabled
       ? (record) => {
           const payload = record?.payload ?? record;
           try {
-            return Boolean(specificConfig.match(payload, state.advanced.specific.fields, specificFilterHelpers));
+            return Boolean(specificConfig.match(payload, criteria.specific.fields, specificFilterHelpers));
           } catch {
             return false;
           }
         }
       : null;
 
-    const results = await searchFullItems(state.botId, {
-      type: state.advanced.type,
-      query: state.advanced.query,
-      deep: state.advanced.deep,
-      limit: 1000,
+    const rawResults = await searchFullItems(searchBotId, {
+      type: criteria.type,
+      query: criteria.query,
+      deep: criteria.deep,
+      limit: ADVANCED_RESULT_LIMIT + 1,
       filterFn,
     });
+    if (
+      disposed ||
+      state !== searchState ||
+      searchSeq !== state.advanced.searchSeq ||
+      searchBotId !== String(state.botId ?? '')
+    ) {
+      return;
+    }
+
+    const truncated = rawResults.length > ADVANCED_RESULT_LIMIT;
+    const results = truncated ? rawResults.slice(0, ADVANCED_RESULT_LIMIT) : rawResults;
     state.advanced.results = results;
-    setText(els.advancedTotal, `${results.length} blocos encontrados`);
+    state.advanced.resultSnapshot = {
+      botId: searchBotId,
+      botTitle: meta?.botTitle ?? null,
+      mode: normalizeModeValue(meta?.mode) ?? normalizeModeValue(state.mode),
+      appBaseUrl: state.appBaseUrl,
+      lastItemsSyncAt: meta?.lastItemsSyncAt ?? null,
+      executedAt: new Date().toISOString(),
+      criteria: cloneSerializable(criteria),
+      results,
+      truncated,
+      stale: false,
+    };
+    setText(
+      els.advancedTotal,
+      truncated
+        ? `${results.length}+ blocos encontrados (limite exibido)`
+        : `${results.length} blocos encontrados`,
+    );
     renderAdvancedResults(results);
   } catch (error) {
+    if (state !== searchState || searchSeq !== state.advanced.searchSeq) return;
+    state.advanced.results = [];
+    state.advanced.resultSnapshot = null;
+    setText(els.advancedTotal, 'Erro ao buscar');
     if (els.advancedResults) {
       els.advancedResults.innerHTML = '';
       const warn = document.createElement('div');
@@ -1018,6 +1240,76 @@ const runAdvancedSearch = async () => {
       warn.textContent = `Erro ao buscar: ${error?.message ?? error}`;
       els.advancedResults.appendChild(warn);
     }
+  } finally {
+    if (state === searchState && searchSeq === state.advanced.searchSeq) {
+      state.advanced.searching = false;
+      updateSearchButtons({
+        summaryReady: Boolean(state.meta?.lastSummarySyncAt),
+        fullReady: Boolean(state.meta?.lastItemsSyncAt),
+      });
+      updateAdvancedExportButton();
+    }
+  }
+};
+
+const exportAdvancedResults = async () => {
+  if (disposed || state.advanced.searching || state.advanced.exporting) return;
+  const snapshot = getExportableAdvancedSnapshot();
+  if (!snapshot || normalizeModeValue(snapshot.mode) !== 'bot') return;
+
+  const exportSummary = getAdvancedExportSummary(snapshot.results);
+  if (!exportSummary.totalCount) return;
+
+  state.advanced.exporting = true;
+  updateSearchButtons({
+    summaryReady: Boolean(state.meta?.lastSummarySyncAt),
+    fullReady: Boolean(state.meta?.lastItemsSyncAt),
+  });
+
+  try {
+    const groupsById = new Map(
+      state.groups.map((group) => [
+        String(group?.groupId ?? ''),
+        String(group?.title ?? '').trim() || String(group?.groupId ?? ''),
+      ]),
+    );
+    const exportedAt = new Date().toISOString();
+    const result = exportAdvancedSearchWorkbook({
+      records: snapshot.results,
+      botId: snapshot.botId,
+      botTitle: snapshot.botTitle,
+      mode: snapshot.mode,
+      appBaseUrl: snapshot.appBaseUrl,
+      exportedAt,
+      searchedAt: snapshot.executedAt,
+      lastItemsSyncAt: snapshot.lastItemsSyncAt,
+      criteria: snapshot.criteria,
+      truncated: snapshot.truncated,
+      groupsById,
+    });
+    const count = Number(result?.count ?? exportSummary.totalCount) || exportSummary.totalCount;
+    const exportedSummary = formatExportSummary({
+      apiCount: Number(result?.apiCount ?? exportSummary.apiCount),
+      topdeskCount: Number(result?.topdeskCount ?? exportSummary.topdeskCount),
+      configuredBlockCount: Number(
+        result?.configuredBlockCount ?? exportSummary.configuredBlockCount,
+      ),
+    });
+    const blockLabel = `bloco${count === 1 ? '' : 's'}`;
+    setText(
+      els.advancedTotal,
+      snapshot.truncated
+        ? `Exportado: ${count} ${blockLabel} (${exportedSummary}) do resultado limitado.`
+        : `Exportado: ${count} ${blockLabel} (${exportedSummary}).`,
+    );
+  } catch (error) {
+    setText(els.advancedTotal, `Erro ao exportar: ${error?.message ?? error}`);
+  } finally {
+    state.advanced.exporting = false;
+    updateSearchButtons({
+      summaryReady: Boolean(state.meta?.lastSummarySyncAt),
+      fullReady: Boolean(state.meta?.lastItemsSyncAt),
+    });
   }
 };
 
@@ -1031,6 +1323,7 @@ const applyConsultaIntent = async () => {
   const meta = (state.meta && state.meta.botId === state.botId) ? state.meta : await loadMeta();
   if (!meta?.lastItemsSyncAt) return false;
 
+  resetAdvancedResults();
   state.advanced.query = query;
   state.advanced.type = String(intent.type ?? '');
   state.advanced.deep = intent.deep !== false;
@@ -1057,6 +1350,7 @@ const applyConsultaIntent = async () => {
 };
 
 const clearAdvancedSearch = () => {
+  resetAdvancedResults({ render: false });
   state.advanced.query = '';
   state.advanced.type = '';
   state.advanced.deep = false;
@@ -1074,7 +1368,6 @@ const clearAdvancedSearch = () => {
     value: state.advanced.type,
     labels: state.typeLabelByValue,
   });
-  setText(els.advancedTotal, '0 blocos encontrados');
   renderAdvancedResults([]);
   persistPanelState();
 };
@@ -1112,7 +1405,15 @@ const updateSearchSectionsVisibility = ({ summaryReady, fullReady }) => {
 
 const updateSearchButtons = ({ summaryReady, fullReady }) => {
   if (els.searchApply) els.searchApply.disabled = !summaryReady;
-  if (els.advancedSearch) els.advancedSearch.disabled = !fullReady;
+  if (els.advancedSearch) {
+    els.advancedSearch.disabled =
+      !fullReady ||
+      Boolean(state.syncStatus?.running) ||
+      state.advanced.searching ||
+      state.advanced.exporting;
+    els.advancedSearch.textContent = state.advanced.searching ? 'Buscando...' : 'Buscar';
+  }
+  updateAdvancedExportButton();
 };
 
 const updateGroupToggleLabels = () => {
@@ -1154,17 +1455,30 @@ const updateSemaforo = () => {
 
 const loadMeta = async () => {
   if (disposed) return null;
-  if (!state.botId) {
+  const requestedState = state;
+  const requestedBotId = state.botId;
+  const requestedBotKey = String(requestedBotId ?? '');
+  if (!requestedBotKey) {
     state.meta = null;
     updateSemaforo();
     return null;
   }
+  let nextMeta = null;
   try {
-    state.meta = await getMeta(state.botId);
+    nextMeta = await getMeta(requestedBotId);
   } catch {
-    state.meta = null;
+    nextMeta = null;
   }
-  if (disposed) return null;
+  if (
+    disposed ||
+    state !== requestedState ||
+    String(state.botId ?? '') !== requestedBotKey
+  ) {
+    return null;
+  }
+
+  const previousMeta = state.meta;
+  state.meta = nextMeta;
   const prevMode = state.mode;
   const syncedMode = normalizeModeValue(state.meta?.mode);
   if (syncedMode && syncedMode !== state.mode) {
@@ -1172,6 +1486,20 @@ const loadMeta = async () => {
     setCurrentMode(state.mode);
   }
   const modeChanged = prevMode !== state.mode;
+  const syncVersionChanged =
+    Boolean(previousMeta && state.meta) &&
+    String(previousMeta.botId ?? '') === requestedBotKey &&
+    String(previousMeta.lastItemsSyncAt ?? '') !== String(state.meta.lastItemsSyncAt ?? '');
+  const snapshot = state.advanced.resultSnapshot;
+  const snapshotOutdated =
+    Boolean(snapshot && !snapshot.stale && state.meta) &&
+    (String(snapshot.botId ?? '') !== requestedBotKey ||
+      String(snapshot.lastItemsSyncAt ?? '') !== String(state.meta?.lastItemsSyncAt ?? '') ||
+      normalizeModeValue(snapshot.mode) !== normalizeModeValue(state.mode));
+  if (snapshotOutdated || (state.advanced.searching && (syncVersionChanged || modeChanged))) {
+    invalidateAdvancedResult({ updateMessage: false });
+    setText(els.advancedTotal, 'Dados sincronizados — clique em Buscar novamente');
+  }
   updateBotLabel();
   updateMetaStats();
   updateSemaforo();
@@ -1350,9 +1678,13 @@ const bindEvents = () => {
   if (els.advancedDeep) on(els.advancedDeep, 'change', handleAdvancedDeepChange);
   if (els.advancedSearch) on(els.advancedSearch, 'click', () => runAdvancedSearch());
   if (els.advancedClear) on(els.advancedClear, 'click', () => clearAdvancedSearch());
+  if (els.advancedExport) on(els.advancedExport, 'click', () => exportAdvancedResults());
 
   if (els.advancedText) {
-    on(els.advancedText, 'input', handleAdvancedInput);
+    on(els.advancedText, 'input', (...args) => {
+      invalidateAdvancedResult();
+      handleAdvancedInput(...args);
+    });
     on(els.advancedText, 'keydown', (event) => {
       if (event.key === 'Enter') runAdvancedSearch();
     });
@@ -1385,6 +1717,7 @@ const bindEvents = () => {
   const onMessage = (message) => {
     if (disposed) return;
     if (message?.type === MessageType.CONTEXT_CHANGED) {
+      resetAdvancedResults({ message: 'Contexto alterado — carregando...' });
       loadContext();
       return;
     }

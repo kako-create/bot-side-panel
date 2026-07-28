@@ -35,6 +35,14 @@ Reduzir tempo de análise/manutenção de fluxos, oferecendo no side panel:
 - Estado de sincronização com progresso e telemetria básica no painel.
 - Navegação por grupos com abrir/fechar.
 
+### 2.1. Tela Exportação
+
+- Sincroniza os conectores do fluxo principal e de cada subfluxo após o full sync.
+- Persiste conectores separadamente no IndexedDB e detecta quando ficaram desatualizados.
+- Exporta JSON completo no modelo `root` + `subflows`, reunindo blocos, conectores,
+  grupos, variáveis e TAGs.
+- Reserva a mesma base de dados para a futura exportação XML compatível com draw.io.
+
 ### 3. Modo BOT/URA centralizado
 
 - O modo canônico é definido no **full sync** (`Sinc. Busca avançada`) e salvo em `meta.mode`.
@@ -148,11 +156,11 @@ Reduzir tempo de análise/manutenção de fluxos, oferecendo no side panel:
 - `background/`:
   - gerencia contexto, sessão de auth, sync e mensagens.
 - `services/`:
-  - cliente de API e serviços de sincronização (summary/full/variáveis/TAGs/IA).
+  - cliente de API e serviços de sincronização (summary/full/conectores/variáveis/TAGs/IA).
 - `data/`:
-  - persistência local em IndexedDB (metas, grupos, itens, variáveis, TAGs, condições/intenções e snapshots da review técnica).
+  - persistência local em IndexedDB (metas, grupos, itens, conectores, variáveis, TAGs, condições/intenções e snapshots da review técnica).
 - `side_panel/screens/`:
-  - telas principais `consulta`, `variaveis`, `tags`, `ia`, `comparacao`, `alteracoes`, `reviewTecnica`, `armazenamento`.
+  - telas principais `consulta`, `exportacao`, `variaveis`, `tags`, `ia`, `comparacao`, `alteracoes`, `reviewTecnica`, `armazenamento`.
 - `side_panel/vendor/`:
   - dependências embarcadas no painel, incluindo `SheetJS` para exportação `.xlsx`.
 

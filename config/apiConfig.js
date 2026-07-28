@@ -16,7 +16,10 @@ export const buildAppUrl = (path) => {
 
 export const apiEndpoints = {
   rootItems: (botId) => buildApiUrl(`/bots/${botId}/items`),
+  rootConnectors: (botId) => buildApiUrl(`/bots/${botId}/connectors`),
   subflowItems: (botId, groupId) => buildApiUrl(`/bots/${botId}/items-subflow/${groupId}`),
+  subflowConnectors: (botId, groupId) =>
+    buildApiUrl(`/bots/${botId}/connectors-subflow/${groupId}`),
   whatsappFlowItems: (botId, itemId, exchangeId) => buildApiUrl(`/bots/${botId}/items-subflow/${itemId}/flow/${exchangeId}`),
   itemsSummary: (botId) => buildApiUrl(`/bots/${botId}/items-summary`),
   builderPending: (botId, params = '') =>

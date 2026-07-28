@@ -1,4 +1,5 @@
 import { screenConsulta } from './consulta.js';
+import { screenExportacao } from './exportacao.js';
 import { screenVariaveis } from './variaveis.js';
 import { screenTags } from './tags.js';
 import { screenIa } from './ia.js';
@@ -13,6 +14,7 @@ import { screenDebug } from './debug.js';
 
 export const screens = [
   screenConsulta,
+  screenExportacao,
   screenVariaveis,
   screenTags,
   screenIa,

@@ -173,6 +173,7 @@
 	              <div class="actions-group">
 	                <button id="advanced-search" class="btn btn--primary" type="button">Buscar</button>
 	                <button id="advanced-clear" class="btn btn--ghost" type="button">Limpar</button>
+	                <button id="advanced-export" class="btn btn--primary" type="button" disabled>Exportar</button>
 	                <button class="btn btn--ghost btn--sm group-toggle" data-scope="advanced" type="button">
 	                  Abrir grupos
 	                </button>
@@ -181,6 +182,73 @@
 	            </div>
 
 	            <div id="advanced-results" class="search-results"></div>
+	          </div>
+	        </section>
+	      </template>
+
+	      <template id="tpl-screen-exportacao">
+	        <section class="card surface status-card">
+	          <div class="section-header">
+	            <span class="semaforo" id="export-light"></span>
+	            <h2 class="text-section-title">Dados do fluxo</h2>
+	          </div>
+	          <div class="section-body">
+	            <div class="status-grid">
+	              <div class="status-row">
+	                <span class="label">Bot</span>
+	                <strong id="export-bot">-</strong>
+	              </div>
+	            </div>
+	            <div class="status-metrics status-metrics--tight">
+	              <div class="metric">
+	                <span>Sync completa</span>
+	                <strong id="export-items-status">-</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Conectores</span>
+	                <strong id="export-connectors-status">-</strong>
+	              </div>
+	            </div>
+	            <div class="status-metrics">
+	              <div class="metric">
+	                <span>Blocos</span>
+	                <strong id="export-items-count">0</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Conectores</span>
+	                <strong id="export-connectors-count">0</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Subfluxos</span>
+	                <strong id="export-scopes-count">0</strong>
+	              </div>
+	            </div>
+	            <p class="muted">
+	              A sincronização completa dos blocos é feita em “Consulta &amp; status”.
+	              Nesta página, sincronize as conexões antes de exportar o fluxo.
+	            </p>
+	            <div class="actions actions-group">
+	              <button id="export-sync-connectors" class="btn btn--secondary" type="button" disabled>
+	                Sincronizar conectores
+	              </button>
+	              <button id="export-json" class="btn btn--primary actions-end" type="button" disabled>
+	                Exportar JSON
+	              </button>
+	            </div>
+	            <p id="export-feedback" class="settings-feedback settings-feedback--info" hidden></p>
+	          </div>
+	        </section>
+
+	        <section class="card surface">
+	          <div class="section-header">
+	            <h2 class="text-section-title">draw.io</h2>
+	          </div>
+	          <div class="section-body">
+	            <p class="muted">
+	              A exportação XML compatível com draw.io será adicionada posteriormente usando
+	              os mesmos blocos e conectores sincronizados.
+	            </p>
+	            <button class="btn btn--ghost" type="button" disabled>Exportar XML (em breve)</button>
 	          </div>
 	        </section>
 	      </template>

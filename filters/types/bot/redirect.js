@@ -90,7 +90,10 @@ export const redirectFilterConfig = {
     );
   },
   match: (item, state, helpers) => {
-    const { matchBoolean, matchBooleanAny, matchText } = createMatchHelpers(item, helpers);
+    const { matchBoolean, matchBooleanAny, matchText, matchTextAny } = createMatchHelpers(
+      item,
+      helpers,
+    );
 
     return (
       matchBoolean('quickAccess', state.quickAccess) &&
@@ -98,13 +101,18 @@ export const redirectFilterConfig = {
       matchText('tags', state.tags) &&
       matchText('timeTypping', state.timeTypping) &&
       matchBooleanAny(['redirectToCheckpoint', 'checkpoint'], state.redirectToCheckpoint) &&
-      matchText('redirectTo', state.redirectTo) &&
-      matchText('redirectToItem', state.redirectTo) &&
-      matchText('redirectTo.id', state.redirectTo) &&
-      matchText('redirectTo.item', state.redirectTo) &&
-      matchText('redirectTo.itemId', state.redirectTo) &&
-      matchText('redirectToItemId', state.redirectTo) &&
-      matchText('eventDescription.active', state.eventDescriptionActive) &&
+      matchTextAny(
+        [
+          'redirectTo',
+          'redirectToItem',
+          'redirectTo.id',
+          'redirectTo.item',
+          'redirectTo.itemId',
+          'redirectToItemId',
+        ],
+        state.redirectTo,
+      ) &&
+      matchBoolean('eventDescription.active', state.eventDescriptionActive) &&
       matchText('eventDescription.description', state.eventDescriptionText)
     );
   },

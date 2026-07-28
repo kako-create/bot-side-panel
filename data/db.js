@@ -1,12 +1,13 @@
 import { normalizeText } from '../shared/utils.js';
 
 const DB_NAME = 'bot_side_panel_db_v1';
-const DB_VERSION = 8;
+const DB_VERSION = 9;
 
 const STORE_META = 'meta';
 const STORE_GROUPS = 'groups';
 const STORE_SUMMARY = 'summary_items';
 const STORE_FULL = 'full_items';
+const STORE_CONNECTORS = 'flow_connectors';
 const STORE_VARIABLES = 'bot_variables';
 const STORE_TAGS = 'bot_tags';
 const STORE_INTENTS = 'bot_intents';
@@ -57,6 +58,13 @@ const openDb = () => {
           store.createIndex('by_bot_group', ['botId', 'groupId'], { unique: false });
           store.createIndex('by_bot_type', ['botId', 'typeFold'], { unique: false });
           store.createIndex('by_bot_title', ['botId', 'titleFold'], { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_CONNECTORS)) {
+          const store = db.createObjectStore(STORE_CONNECTORS, {
+            keyPath: ['botId', 'scopeId', 'connectorId'],
+          });
+          store.createIndex('by_bot', 'botId', { unique: false });
+          store.createIndex('by_bot_scope', ['botId', 'scopeId'], { unique: false });
         }
         if (!db.objectStoreNames.contains(STORE_VARIABLES)) {
           const store = db.createObjectStore(STORE_VARIABLES, { keyPath: ['botId', 'varId'] });
@@ -200,6 +208,13 @@ export const saveFullItems = async (botId, items) =>
     }
   });
 
+export const saveFlowConnectors = async (botId, connectors) =>
+  withStore(STORE_CONNECTORS, 'readwrite', (store) => {
+    for (const connector of connectors) {
+      store.put({ ...connector, botId });
+    }
+  });
+
 export const saveBotVariables = async (botId, variables) =>
   withStore(STORE_VARIABLES, 'readwrite', (store) => {
     for (const variable of variables) {
@@ -254,6 +269,12 @@ export const listBotIntents = async (botId) =>
 
 export const listBotLexIntents = async (botId) =>
   withStore(STORE_LEX_INTENTS, 'readonly', (store) => {
+    const index = store.index('by_bot');
+    return cursorToArray(index.openCursor(IDBKeyRange.only(botId)));
+  });
+
+export const listFlowConnectors = async (botId) =>
+  withStore(STORE_CONNECTORS, 'readonly', (store) => {
     const index = store.index('by_bot');
     return cursorToArray(index.openCursor(IDBKeyRange.only(botId)));
   });
@@ -414,6 +435,11 @@ export const clearSummaryData = async (botId) => {
 export const clearFullData = async (botId) => {
   const db = await openDb();
   await deleteByIndex(db, STORE_FULL, 'by_bot', botId);
+};
+
+export const clearFlowConnectors = async (botId) => {
+  const db = await openDb();
+  await deleteByIndex(db, STORE_CONNECTORS, 'by_bot', botId);
 };
 
 export const clearVariablesData = async (botId) => {
@@ -628,6 +654,7 @@ export const clearBotData = async (botId) => {
   await deleteByIndex(db, STORE_GROUPS, 'by_bot', botId);
   await deleteByIndex(db, STORE_SUMMARY, 'by_bot', botId);
   await deleteByIndex(db, STORE_FULL, 'by_bot', botId);
+  await deleteByIndex(db, STORE_CONNECTORS, 'by_bot', botId);
   await deleteByIndex(db, STORE_VARIABLES, 'by_bot', botId);
   await deleteByIndex(db, STORE_TAGS, 'by_bot', botId);
   await deleteByIndex(db, STORE_INTENTS, 'by_bot', botId);
@@ -866,6 +893,7 @@ export const STORE_NAMES = {
   GROUPS: STORE_GROUPS,
   SUMMARY: STORE_SUMMARY,
   FULL: STORE_FULL,
+  CONNECTORS: STORE_CONNECTORS,
   VARIABLES: STORE_VARIABLES,
   TAGS: STORE_TAGS,
   INTENTS: STORE_INTENTS,
